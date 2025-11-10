@@ -24,8 +24,8 @@ The experiments aim to understand how increasing exposure to unlabeled data impr
 
 Before you begin, ensure you have met the following requirements:
 
-* You have **Python 3.11+** installed.
 * You have **[uv](https://github.com/astral-sh/uv)** installed (for dependency management and reproducibility).
+* You have **Python 3.13+** installed.
 * The project was tested on **Linux**.
 * A CUDA-enabled GPU is strongly recommended for efficient pre-training and fine-tuning.
 
