@@ -37,7 +37,7 @@ class MAEPretrainModule(pl.LightningModule):
     ):
         super().__init__()
         self.save_hyperparameters()
-        self.model = MAEViT(mask_ratio=mask_ratio, patch_size=8)
+        self.model = MAEViT(mask_ratio=mask_ratio)
         self.lr = lr
         self.weight_decay = weight_decay
 
@@ -47,15 +47,22 @@ class MAEPretrainModule(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         imgs, _ = batch
         predicted_img, mask = self(imgs)
-        
-        # Patchify input images
-        imgs_patched = self.model.encoder.patchify(imgs)  # (B, num_patches, 3, patch_size, patch_size)
 
         # Compute MSE only on masked patches
-        loss = ((predicted_img - imgs_patched) ** 2 * mask).sum() / mask.sum()
+        loss = torch.mean((predicted_img - imgs) ** 2 * mask / self.hparams.mask_ratio)
 
-        self.log("train_loss", loss, prog_bar=True, on_epoch=True)
+        # Log step loss
+        self.log("train_loss_step", loss, prog_bar=True, on_step=True, on_epoch=False)
+        self.log("train_loss_epoch", loss, prog_bar=True, on_step=False, on_epoch=True)
+
         return loss
+
+    def on_train_epoch_end(self):
+        loss = self.trainer.callback_metrics.get("train_loss_epoch")
+        if loss is not None:
+            print(
+                f"\n[Epoch {self.current_epoch}] Mean training loss: {loss.item():.4f}"
+            )
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
@@ -71,14 +78,14 @@ def get_dataloaders(batch_size: int = 8):
     """Returns tiny STL10 dataloaders for quick sanity checks."""
     transform = transforms.Compose(
         [
-            transforms.Resize((32, 32)),
+            transforms.Resize((96, 96)),  # STL10 default resolution
             transforms.ToTensor(),
-            transforms.Normalize(0.5, 0.5),
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
         ]
     )
 
     # Use small subsets to keep it lightweight
-    train_data = STL10(DATA_DIR, split="unlabeled", transform=transform)
+    train_data = STL10(DATA_DIR, split="unlabeled", transform=transform, download=True)
     subset = Subset(train_data, range(16))  # just 16 samples for sanity check
     loader = DataLoader(subset, batch_size=batch_size, shuffle=True, num_workers=2)
     return loader
