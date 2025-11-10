@@ -37,7 +37,7 @@ class MAEPretrainModule(pl.LightningModule):
     ):
         super().__init__()
         self.save_hyperparameters()
-        self.model = MAEViT(mask_ratio=mask_ratio)
+        self.model = MAEViT(mask_ratio=mask_ratio, patch_size=8)
         self.lr = lr
         self.weight_decay = weight_decay
 
@@ -47,7 +47,13 @@ class MAEPretrainModule(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         imgs, _ = batch
         predicted_img, mask = self(imgs)
-        loss = torch.mean((predicted_img - imgs) ** 2 * mask) / self.hparams.mask_ratio
+        
+        # Patchify input images
+        imgs_patched = self.model.encoder.patchify(imgs)  # (B, num_patches, 3, patch_size, patch_size)
+
+        # Compute MSE only on masked patches
+        loss = ((predicted_img - imgs_patched) ** 2 * mask).sum() / mask.sum()
+
         self.log("train_loss", loss, prog_bar=True, on_epoch=True)
         return loss
 
