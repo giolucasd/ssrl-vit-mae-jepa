@@ -208,3 +208,6 @@ __marimo__/
 
 # Data files
 data/
+
+# Pytorch Lightning logs and checkpoints
+lightning_logs/
