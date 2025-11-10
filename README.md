@@ -1,4 +1,4 @@
-# Self-Supervised Representation Learning with ViT, MAE, and JEPA
+# Self-Supervised Representation Learning with ViT, MAE, and JEPA <!-- omit from toc -->
 
 ![GitHub repo size](https://img.shields.io/github/repo-size/giolucasd/ssrl-vit-mae-jepa)
 ![GitHub contributors](https://img.shields.io/github/contributors/giolucasd/ssrl-vit-mae-jepa)
@@ -10,9 +10,17 @@ It compares two paradigms — **Masked Autoencoders (MAE)** and **Joint Embeddin
 
 The experiments aim to understand how increasing exposure to unlabeled data improves generalization while minimizing the need for labeled examples.
 
+- [1. Prerequisites](#1-prerequisites)
+- [2. Installing `ssrl-vit-mae-jepa`](#2-installing-ssrl-vit-mae-jepa)
+- [3. Using `ssrl-vit-mae-jepa`](#3-using-ssrl-vit-mae-jepa)
+- [4. Contributing](#4-contributing)
+- [5. Contributors](#5-contributors)
+- [6. Contact](#6-contact)
+- [7. License](#7-license)
+
 ---
 
-## Prerequisites
+## 1. Prerequisites
 
 Before you begin, ensure you have met the following requirements:
 
@@ -23,7 +31,7 @@ Before you begin, ensure you have met the following requirements:
 
 ---
 
-## Installing `ssrl-vit-mae-jepa`
+## 2. Installing `ssrl-vit-mae-jepa`
 
 Clone this repository and install dependencies using **uv**:
 
@@ -39,9 +47,16 @@ To include development dependencies (for reproducibility or debugging):
 uv sync --all-extras
 ```
 
+To check if the installation was succesful and GPU access is correct:
+
+```bash
+uv run python test/test_cuda_torch.py
+uv run python test/test_cuda_benchmark.py
+```
+
 ---
 
-## Using `ssrl-vit-mae-jepa`
+## 3. Using `ssrl-vit-mae-jepa`
 
 Train a model using MAE or JEPA pre-training followed by fine-tuning:
 
@@ -60,7 +75,7 @@ A reproducible **Jupyter notebook** for visualizing results and attention heatma
 
 ---
 
-## Contributing
+## 4. Contributing
 
 To contribute to this project:
 
@@ -73,28 +88,29 @@ To contribute to this project:
 3. Commit your changes:
 
    ```bash
-   git commit -m "Add <description>"
+   git commit -m "feat: <description>"
    ```
 4. Push to your fork and open a Pull Request.
 
 ---
 
-## Contributors
+## 5. Contributors
 
 * [@giolucasd](https://github.com/giolucasd)
 * [@yanprada](https://github.com/yanprada)
 
 ---
 
-## Contact
+## 6. Contact
 
 For questions or collaboration, reach out to:
 
 📧 [g173317@dac.unicamp.br](mailto:g173317@dac.unicamp.br)
+📧 [y118982@dac.unicamp.br](mailto:y118982@dac.unicamp.br)
 
 ---
 
-## License
+## 7. License
 
 This project is licensed under the [MIT License](LICENSE).
 
