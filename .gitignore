@@ -211,3 +211,6 @@ data/
 
 # Pytorch Lightning logs and checkpoints
 lightning_logs/
+
+# Training outputs
+outputs/
