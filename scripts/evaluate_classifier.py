@@ -6,7 +6,7 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
-from src.utils.classifier_module import MAEClassifierModule
+from src.training.mae_trainers import MAETrainModule
 
 
 def parse_args():
@@ -90,7 +90,7 @@ def main():
 
     print(f"Loading checkpoint from {args.ckpt_path}")
 
-    model = MAEClassifierModule.load_from_checkpoint(args.ckpt_path)
+    model = MAETrainModule.load_from_checkpoint(args.ckpt_path)
     dataloader = get_test_loader(args.batch_size, args.num_workers)
 
     metrics = evaluate(model, dataloader, args.device)

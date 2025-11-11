@@ -12,7 +12,7 @@ from torchvision import transforms
 from torchvision.datasets import STL10
 
 from src.models.mae.encoder import MAEEncoder
-from src.utils.train_module import MAETrainModule
+from src.training.mae_trainers import MAETrainModule
 
 
 def parse_args():

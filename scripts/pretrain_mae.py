@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader, Subset
 from torchvision import transforms
 from torchvision.datasets import STL10
 
-from src.utils.pretrain_module import MAEPretrainModule
+from src.training.mae_trainers import MAEPretrainModule
 
 torch.set_float32_matmul_precision("high")
 
