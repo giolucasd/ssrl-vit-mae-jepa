@@ -11,7 +11,31 @@ from typing import Optional
 import torch
 from einops import rearrange
 
-from src.models.mae.encoder import MAEEncoder
+class MLPHead(torch.nn.Module):
+    """Compact MLP head with GELU, LayerNorm, dropout, and light residual connection."""
+
+    def __init__(
+        self,
+        in_dim: int,
+        num_classes: int,
+        dropout: float = 0.2,
+    ) -> None:
+        super().__init__()
+
+        self.fc1 = torch.nn.Linear(in_dim, in_dim)
+        self.act = torch.nn.GELU()
+        self.norm = torch.nn.LayerNorm(in_dim)
+        self.drop = torch.nn.Dropout(dropout)
+        self.fc2 = torch.nn.Linear(in_dim, num_classes)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        h = self.fc1(x)
+        h = self.act(h)
+        h = self.norm(h)
+        h = self.drop(h)
+        h = h + x  # residual connection
+        out = self.fc2(h)
+        return out
 
 
 class ViTClassifier(torch.nn.Module):
@@ -42,8 +66,10 @@ class ViTClassifier(torch.nn.Module):
 
         # Classification head
         emb_dim = int(self.pos_embedding.shape[-1])
-        self.head: torch.nn.Linear = torch.nn.Linear(
-            in_features=emb_dim, out_features=int(num_classes)
+        self.head = MLPHead(
+            in_dim=emb_dim,
+            num_classes=num_classes,
+            dropout=0.3,
         )
 
     def forward(
