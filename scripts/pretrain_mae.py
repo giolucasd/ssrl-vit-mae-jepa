@@ -21,8 +21,8 @@ def parse_args():
 
     # Core hyperparameters
     parser.add_argument("--seed", type=int, default=73)
-    parser.add_argument("--batch_size", type=int, default=256)
-    parser.add_argument("--max_device_batch_size", type=int, default=64)
+    parser.add_argument("--batch_size", type=int, default=512)
+    parser.add_argument("--max_device_batch_size", type=int, default=512)
     parser.add_argument("--base_learning_rate", type=float, default=1.5e-4)
     parser.add_argument("--weight_decay", type=float, default=0.05)
     parser.add_argument("--mask_ratio", type=float, default=0.75)
@@ -66,6 +66,9 @@ def get_dataloader(data_dir: Path, batch_size: int, data_fraction: float):
     """Build a DataLoader for the unlabeled STL-10 subset."""
     transform = transforms.Compose(
         [
+            transforms.RandomResizedCrop(96, scale=(0.8, 1.0)),
+            transforms.ColorJitter(0.4, 0.4, 0.4, 0.1),
+            transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize(0.5, 0.5),
         ]
@@ -103,7 +106,7 @@ def main():
     # ------------------------------
     # Logging + Checkpoint setup
     # ------------------------------
-    tb_logger = TensorBoardLogger(save_dir=str(output_dir), name="mae_pretrain")
+    tb_logger = TensorBoardLogger(save_dir=str(output_dir), name="logs")
 
     checkpoint_callback = ModelCheckpoint(
         dirpath=output_dir / "checkpoints",
