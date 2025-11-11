@@ -23,10 +23,17 @@ def parse_args():
     parser.add_argument(
         "--encoder_ckpt",
         type=str,
-        required=True,
+        default=None,
         help="Path to pretrained MAE encoder weights",
     )
-    parser.add_argument("--batch_size", type=int, default=256)
+    parser.add_argument(
+        "--classifier_ckpt",
+        type=str,
+        default=None,
+        help="Optional path to a full classifier checkpoint for fine-tuning.",
+    )
+
+    parser.add_argument("--batch_size", type=int, default=512)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--weight_decay", type=float, default=0.05)
     parser.add_argument(
@@ -57,6 +64,7 @@ def get_dataloaders(
     transform_train = transforms.Compose(
         [
             transforms.RandomResizedCrop(96, scale=(0.8, 1.0)),
+            transforms.ColorJitter(0.4, 0.4, 0.4, 0.1),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize(0.5, 0.5),
@@ -65,8 +73,6 @@ def get_dataloaders(
 
     transform_val = transforms.Compose(
         [
-            transforms.Resize(96),
-            transforms.CenterCrop(96),
             transforms.ToTensor(),
             transforms.Normalize(0.5, 0.5),
         ]
@@ -143,34 +149,6 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Load pretrained encoder
-    encoder = MAEEncoder()
-    ckpt = torch.load(args.encoder_ckpt, map_location="cpu")
-    state_dict = ckpt["state_dict"]
-
-    encoder_state_dict = {
-        k.replace("encoder.", ""): v
-        for k, v in state_dict.items()
-        if k.startswith("encoder.")
-    }
-
-    missing, unexpected = encoder.load_state_dict(encoder_state_dict, strict=False)
-    print(
-        f"Loaded encoder weights: {len(encoder_state_dict)} params "
-        f"({len(missing)} missing, {len(unexpected)} unexpected)"
-    )
-
-    # Init Lightning module
-    module = MAETrainModule(
-        pretrained_encoder=encoder,
-        learning_rate=args.lr,
-        weight_decay=args.weight_decay,
-        warmup_epochs=args.warmup_epochs,
-        total_epochs=args.epochs,
-        freeze_encoder=args.freeze_encoder,
-    )
-
-    # Dataloaders
     data_dir = Path("data")
     train_loader, val_loader = get_dataloaders(
         data_dir,
@@ -179,7 +157,60 @@ def main():
         samples_per_class=args.samples_per_class,
     )
 
-    # Callbacks (logging + checkpoint)
+    # --------------------------------------------------
+    # CASE 1: Fine-tuning from full classifier checkpoint
+    # --------------------------------------------------
+    if args.classifier_ckpt:
+        print(f"🔁 Loading full classifier checkpoint from {args.classifier_ckpt}")
+        module = MAETrainModule.load_from_checkpoint(
+            args.classifier_ckpt,
+            map_location="cpu",
+            strict=False,  # allow partial state loading if needed
+        )
+
+        # Optionally unfreeze encoder for fine-tuning
+        if args.freeze_encoder is False:
+            print("🧠 Unfreezing encoder for fine-tuning...")
+            module.model.encoder_unfreeze()
+
+        # Optionally override optimizer hyperparams
+        module.hparams.learning_rate = args.lr
+        module.hparams.weight_decay = args.weight_decay
+        module.hparams.warmup_epochs = args.warmup_epochs
+        module.hparams.total_epochs = args.epochs
+
+    # --------------------------------------------------
+    # CASE 2: Start from pretrained encoder weights only
+    # --------------------------------------------------
+    else:
+        print(f"🧩 Loading pretrained encoder from {args.encoder_ckpt}")
+        encoder = MAEEncoder()
+        ckpt = torch.load(args.encoder_ckpt, map_location="cpu")
+        state_dict = ckpt["state_dict"]
+
+        encoder_state_dict = {
+            k.replace("encoder.", ""): v
+            for k, v in state_dict.items()
+            if k.startswith("encoder.")
+        }
+        missing, unexpected = encoder.load_state_dict(encoder_state_dict, strict=False)
+        print(
+            f"Loaded encoder weights: {len(encoder_state_dict)} params "
+            f"({len(missing)} missing, {len(unexpected)} unexpected)"
+        )
+
+        module = MAETrainModule(
+            pretrained_encoder=encoder,
+            learning_rate=args.lr,
+            weight_decay=args.weight_decay,
+            warmup_epochs=args.warmup_epochs,
+            total_epochs=args.epochs,
+            freeze_encoder=args.freeze_encoder,
+        )
+
+    # --------------------------------------------------
+    # Logger + Checkpoints
+    # --------------------------------------------------
     tb_logger = pl.loggers.TensorBoardLogger(save_dir=str(output_dir), name="logs")
     ckpt_callback = pl.callbacks.ModelCheckpoint(
         dirpath=output_dir / "checkpoints",
@@ -189,7 +220,9 @@ def main():
         filename="best-valacc-{epoch:03d}-{val_acc:.4f}",
     )
 
+    # --------------------------------------------------
     # Trainer
+    # --------------------------------------------------
     trainer = pl.Trainer(
         accelerator="auto",
         devices=1,
