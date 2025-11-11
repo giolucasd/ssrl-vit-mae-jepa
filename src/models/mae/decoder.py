@@ -39,9 +39,9 @@ class MAEDecoder(torch.nn.Module):
         self,
         image_size: int = 96,
         patch_size: int = 6,
-        emb_dim: int = 384,
+        emb_dim: int = 256,
         num_layer: int = 4,
-        num_head: int = 6,
+        num_head: int = 4,
     ) -> None:
         """
         Args:
