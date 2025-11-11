@@ -13,6 +13,11 @@ The experiments aim to understand how increasing exposure to unlabeled data impr
 - [1. Prerequisites](#1-prerequisites)
 - [2. Installing `ssrl-vit-mae-jepa`](#2-installing-ssrl-vit-mae-jepa)
 - [3. Using `ssrl-vit-mae-jepa`](#3-using-ssrl-vit-mae-jepa)
+  - [🧩 `scripts/data.py`](#-scriptsdatapy)
+  - [🧠 `scripts/pretrain_mae.py`](#-scriptspretrain_maepy)
+  - [🧮 `scripts/train_mae.py`](#-scriptstrain_maepy)
+  - [🧪 `scripts.linear_probe.py`](#-scriptslinear_probepy)
+  - [📊 `scripts.evaluate_classifier.py`](#-scriptsevaluate_classifierpy)
 - [4. Contributing](#4-contributing)
 - [5. Contributors](#5-contributors)
 - [6. Contact](#6-contact)
@@ -54,9 +59,120 @@ uv run python test/test_cuda_torch.py
 uv run python test/test_cuda_benchmark.py
 ```
 
+After installing the dependencies, activate the virtual environment created by **uv**:
+
+```bash
+source .venv/bin/activate
+```
+
 ---
 
 ## 3. Using `ssrl-vit-mae-jepa`
+
+The project provides a set of modular training scripts that implement all stages of the self-supervised learning pipeline — from data preparation to evaluation.
+
+---
+
+### 🧩 `scripts/data.py`
+Utility for downloading and verifying the **STL-10** dataset (labeled + unlabeled).
+
+```bash
+python -m scripts.data
+```
+
+By default, the dataset is stored under `data/`.
+
+---
+
+### 🧠 `scripts/pretrain_mae.py`
+Runs **Masked Autoencoder (MAE)** pre-training on the unlabeled subset of STL-10.
+
+```bash
+python -m scripts.pretrain_mae \
+  --data_fraction 0.25 \
+  --total_epochs 50 \
+  --warmup_epochs 5 \
+  --batch_size 512 \
+  --max_device_batch_size 512 \
+  --model_path vit-mae-025.pt \
+  --output_dir outputs/pretrain/mae_025
+```
+
+**Key arguments:**
+- `--data_fraction`: fraction of unlabeled STL-10 data used for pre-training (`0.25`, `0.5`, `1.0`, etc.).
+- `--total_epochs`: total number of training epochs.
+- `--warmup_epochs`: linear warmup duration before applying the cosine scheduler.
+- `--batch_size`: global batch size.
+- `--output_dir`: directory to save checkpoints and logs.
+
+---
+
+### 🧮 `scripts/train_mae.py`
+Fine-tunes the pretrained encoder on labeled STL-10 samples (either frozen or unfrozen).
+
+```bash
+python -m scripts.train_mae \
+  --encoder_ckpt outputs/pretrain/mae_025/checkpoints/last.ckpt \
+  --freeze_encoder True \
+  --samples_per_class 400 \
+  --epochs 100 \
+  --lr 3e-4 \
+  --output_dir outputs/train/mae_400
+```
+
+To **fine-tune the entire encoder** (unfrozen):
+```bash
+python -m scripts.train_mae \
+  --classifier_ckpt outputs/train/mae_400/checkpoints/best-valacc-epoch=078-val_acc=0.3080.ckpt \
+  --freeze_encoder False \
+  --epochs 50 \
+  --lr 1e-5 \
+  --output_dir outputs/train/mae_400_finetune
+```
+
+**Key arguments:**
+- `--encoder_ckpt`: path to pretrained MAE encoder checkpoint.
+- `--classifier_ckpt`: path to previously trained classifier (optional, for fine-tuning).
+- `--freeze_encoder`: whether to freeze encoder weights.
+- `--samples_per_class`: number of labeled examples per class (10–400).
+- `--epochs`: total number of fine-tuning epochs.
+
+---
+
+### 🧪 `scripts.linear_probe.py`
+Evaluates **frozen encoder representations** by training a single linear classifier on top of them (linear probe).
+
+```bash
+python -m scripts.linear_probe \
+  --encoder_ckpt outputs/pretrain/mae_100/checkpoints/mae-epoch=394-train_loss=0.062.ckpt \
+  --batch_size 1024 \
+  --epochs 50 \
+  --lr 1e-3 \
+  --output_dir outputs/linear_probe
+```
+
+**Output:** linear probe accuracy (top-1) on STL-10 test set.
+
+---
+
+### 📊 `scripts.evaluate_classifier.py`
+Evaluates a fine-tuned classifier checkpoint on the STL-10 **test set**.
+
+```bash
+python -m scripts.evaluate_classifier \
+  --ckpt_path outputs/train/mae_400_finetune/checkpoints/best-valacc-epoch=020-val_acc=0.3110.ckpt \
+  --batch_size 256 \
+  --num_workers 8
+```
+
+**Output:**
+- Accuracy, precision, recall, and F1-score metrics on the test set.
+
+---
+
+All results — including model checkpoints, logs, and TensorBoard summaries — are saved in the `outputs/` directory.
+
+---
 
 Train a model using MAE or JEPA pre-training followed by fine-tuning:
 
