@@ -139,10 +139,10 @@ class MAEEncoder(torch.nn.Module):
     def __init__(
         self,
         image_size: int = 96,
-        patch_size: int = 8,
-        emb_dim: int = 192,
+        patch_size: int = 6,
+        emb_dim: int = 384,
         num_layer: int = 12,
-        num_head: int = 3,
+        num_head: int = 6,
         mask_ratio: float = 0.75,
     ) -> None:
         super().__init__()
@@ -150,7 +150,9 @@ class MAEEncoder(torch.nn.Module):
         if image_size % patch_size != 0:
             raise ValueError("image_size must be divisible by patch_size")
 
-        num_patches = (image_size // patch_size) ** 2
+        self.image_size = image_size
+        self.patch_size = patch_size
+        self.emb_dim = emb_dim
 
         # learnable class token and positional embeddings
         self.cls_token = torch.nn.Parameter(torch.zeros(1, 1, emb_dim))

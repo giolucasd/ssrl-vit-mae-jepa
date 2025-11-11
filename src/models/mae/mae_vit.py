@@ -21,12 +21,12 @@ class MAEViT(torch.nn.Module):
     def __init__(
         self,
         image_size: int = 96,
-        patch_size: int = 8,
-        emb_dim: int = 192,
+        patch_size: int = 6,
+        emb_dim: int = 384,
         encoder_layer: int = 12,
-        encoder_head: int = 3,
+        encoder_head: int = 6,
         decoder_layer: int = 4,
-        decoder_head: int = 3,
+        decoder_head: int = 6,
         mask_ratio: float = 0.75,
     ) -> None:
         """
