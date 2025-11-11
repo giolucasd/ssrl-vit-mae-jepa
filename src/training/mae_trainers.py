@@ -13,20 +13,25 @@ from src.models.mae.mae_vit import MAEViT
 
 
 class MAEPretrainModule(pl.LightningModule):
-    """Self-supervised MAE pretraining with Lightning."""
+    """Self-supervised MAE pretraining with configuration-driven model creation."""
 
     def __init__(
         self,
-        mask_ratio: float = 0.75,
-        base_learning_rate: float = 1.5e-4,
-        weight_decay: float = 0.05,
-        warmup_epochs: int = 200,
-        total_epochs: int = 2000,
-        batch_size: int = 4096,
+        model_cfg: dict,
+        training_cfg: dict,
     ):
+        """
+        Args:
+            model_cfg: dict of model hyperparameters (image_size, patch_size, emb_dim, etc.)
+            training_cfg: dict of training hyperparameters (lr, epochs, batch_size, etc.)
+        """
         super().__init__()
-        self.save_hyperparameters()
-        self.model = MAEViT(mask_ratio=mask_ratio)
+        self.save_hyperparameters(ignore=["model_cfg", "training_cfg"])
+        self.model_cfg = model_cfg
+        self.training_cfg = training_cfg
+
+        # Instantiate MAE model directly from config
+        self.model = MAEViT(**model_cfg)
 
     # ------------------------------
     # Forward
@@ -41,9 +46,8 @@ class MAEPretrainModule(pl.LightningModule):
         imgs, _ = batch
         predicted_img, mask = self(imgs)
 
-        # Reconstruction loss on masked patches only
+        # Reconstruction loss only on masked patches
         loss = ((predicted_img - imgs) ** 2 * mask).sum() / mask.sum()
-
         self.log("train_loss", loss, prog_bar=True, on_epoch=True)
         return loss
 
@@ -51,17 +55,24 @@ class MAEPretrainModule(pl.LightningModule):
     # Optimizer + Scheduler
     # ------------------------------
     def configure_optimizers(self):
-        effective_lr = self.hparams.base_learning_rate * self.hparams.batch_size / 256
+        batch_size = self.training_cfg["batch_size"]
+        base_lr = self.training_cfg["base_learning_rate"]
+        total_epochs = self.training_cfg["total_epochs"]
+        warmup_epochs = self.training_cfg["warmup_epochs"]
+        weight_decay = self.training_cfg["weight_decay"]
+
+        effective_lr = base_lr * batch_size / 256
+
         optimizer = AdamW(
             self.model.parameters(),
             lr=effective_lr,
             betas=(0.9, 0.95),
-            weight_decay=self.hparams.weight_decay,
+            weight_decay=weight_decay,
         )
 
         def lr_lambda(epoch):
-            warmup = (epoch + 1) / max(1, self.hparams.warmup_epochs)
-            cosine = 0.5 * (1 + math.cos(math.pi * epoch / self.hparams.total_epochs))
+            warmup = (epoch + 1) / max(1, warmup_epochs)
+            cosine = 0.5 * (1 + math.cos(math.pi * epoch / total_epochs))
             return min(warmup, 1.0) * cosine
 
         scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
