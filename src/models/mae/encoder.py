@@ -155,6 +155,7 @@ class MAEEncoder(torch.nn.Module):
         self.emb_dim = emb_dim
 
         # learnable class token and positional embeddings
+        num_patches = (image_size // patch_size) ** 2
         self.cls_token = torch.nn.Parameter(torch.zeros(1, 1, emb_dim))
         self.pos_embedding = torch.nn.Parameter(torch.zeros(num_patches, 1, emb_dim))
 
