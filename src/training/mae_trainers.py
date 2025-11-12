@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 
+from src.models.mae.classifier import ViTClassifier
 from src.models.mae.encoder import MAEEncoder
 from src.models.mae.mae_vit import MAEViT
 
@@ -88,35 +89,47 @@ class MAEPretrainModule(pl.LightningModule):
 
 
 class MAETrainModule(pl.LightningModule):
-    """Lightning module for fine-tuning a pretrained MAE encoder on classification."""
+    """Lightning module for fine-tuning or training a pretrained MAE encoder."""
 
     def __init__(
         self,
         pretrained_encoder: MAEEncoder | None = None,
-        num_classes: int = 10,
-        learning_rate: float = 3e-4,
-        weight_decay: float = 0.05,
-        warmup_epochs: int = 5,
-        total_epochs: int = 100,
-        freeze_encoder: bool = True,
+        model_cfg: dict | None = None,
+        training_cfg: dict | None = None,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["pretrained_encoder"])
 
-        # If no encoder provided, assume we’re being loaded from a checkpoint
-        if pretrained_encoder is None:
-            print("⚙️ No encoder provided, assuming checkpoint load.")
-            self.model = None
-        else:
-            from src.models.mae.classifier import ViTClassifier
+        # ------------------------------
+        # Configs
+        # ------------------------------
+        model_cfg = model_cfg or {}
+        training_cfg = training_cfg or {}
 
+        self.learning_rate = training_cfg.get("learning_rate", 3e-4)
+        self.weight_decay = training_cfg.get("weight_decay", 0.05)
+        self.warmup_epochs = training_cfg.get("warmup_epochs", 5)
+        self.total_epochs = training_cfg.get("total_epochs", 100)
+        self.num_classes = model_cfg.get("num_classes", 10)
+        self.freeze_encoder_flag = training_cfg.get("freeze_encoder", True)
+
+        # ------------------------------
+        # Model setup
+        # ------------------------------
+        if pretrained_encoder is not None:
             self.model = ViTClassifier(
-                encoder=pretrained_encoder, num_classes=num_classes
+                encoder=pretrained_encoder,
+                num_classes=self.num_classes,
             )
+        else:
+            print(
+                "⚙️ No pretrained encoder provided — model will be reinitialized on load."
+            )
+            self.model = None
 
-        self._freeze_encoder = freeze_encoder
+        # Freeze or unfreeze as requested
         if self.model is not None:
-            if self._freeze_encoder:
+            if self.freeze_encoder_flag:
                 self.freeze_encoder()
             else:
                 self.unfreeze_encoder()
@@ -159,13 +172,13 @@ class MAETrainModule(pl.LightningModule):
     def configure_optimizers(self):
         optimizer = AdamW(
             filter(lambda p: p.requires_grad, self.model.parameters()),
-            lr=self.hparams.learning_rate,
-            weight_decay=self.hparams.weight_decay,
+            lr=self.learning_rate,
+            weight_decay=self.weight_decay,
         )
 
         def lr_lambda(epoch):
-            warmup = (epoch + 1) / max(1, self.hparams.warmup_epochs)
-            cosine = 0.5 * (1 + math.cos(math.pi * epoch / self.hparams.total_epochs))
+            warmup = (epoch + 1) / max(1, self.warmup_epochs)
+            cosine = 0.5 * (1 + math.cos(math.pi * epoch / self.total_epochs))
             return min(warmup, 1.0) * cosine
 
         scheduler = LambdaLR(optimizer, lr_lambda)
@@ -182,17 +195,15 @@ class MAETrainModule(pl.LightningModule):
     # Encoder freezing utilities
     # ------------------------------
     def freeze_encoder(self):
-        """Freeze all encoder parameters (except classification head)."""
-        if not hasattr(self, "model") or self.model is None:
+        if self.model is None:
             return
         for name, param in self.model.named_parameters():
             if "head" not in name:
                 param.requires_grad = False
-        print("🧊 Encoder frozen (only head is trainable).")
+        print("🧊 Encoder frozen (only classifier head is trainable).")
 
     def unfreeze_encoder(self):
-        """Unfreeze all encoder parameters for fine-tuning."""
-        if not hasattr(self, "model") or self.model is None:
+        if self.model is None:
             return
         for param in self.model.parameters():
             param.requires_grad = True
@@ -202,18 +213,16 @@ class MAETrainModule(pl.LightningModule):
     # Checkpoint loading hook
     # ------------------------------
     def on_load_checkpoint(self, checkpoint):
-        """Called automatically when loading from checkpoint."""
+        """Rebuild model automatically if missing (for load_from_checkpoint)."""
         if self.model is None:
-            print("🔁 Reinitializing model from checkpoint state_dict...")
-            from src.models.mae.classifier import ViTClassifier
-            from src.models.mae.encoder import MAEEncoder
-
+            print("🔁 Reinitializing ViTClassifier from checkpoint metadata...")
             encoder = MAEEncoder()
             self.model = ViTClassifier(
-                encoder=encoder, num_classes=self.hparams.num_classes
+                encoder=encoder,
+                num_classes=self.hparams.get("num_classes", 10),
             )
 
-        if self._freeze_encoder:
+        if self.freeze_encoder_flag:
             self.freeze_encoder()
         else:
             self.unfreeze_encoder()
