@@ -2,17 +2,17 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal, Optional
 
 import numpy as np
-from torch.utils.data import DataLoader, Subset
+import torch
+from torch.utils.data import DataLoader, Subset, random_split
 from torchvision import transforms
 from torchvision.datasets import STL10
 
+ROOT_DIR = Path(__file__).resolve().parents[1]
+DATA_DIR = ROOT_DIR / "data"
 
-# ============================================================
-# 🔧 Helpers
-# ============================================================
+
 def _build_transform(train: bool = True) -> transforms.Compose:
     """Standard STL-10 augmentations."""
     if train:
@@ -44,83 +44,116 @@ def _subset_dataset(dataset, fraction: float) -> Subset | STL10:
     return dataset
 
 
-# ============================================================
-# 🧩 Dataloaders
-# ============================================================
-def get_stl10_dataloader(
-    split: Literal["unlabeled", "train", "test"],
-    data_dir: str | Path = "data",
-    batch_size: int = 512,
-    train: bool = True,
-    data_fraction: float = 1.0,
-    num_workers: int = 4,
-    shuffle: bool = True,
-) -> DataLoader:
-    """General STL-10 DataLoader factory."""
-    transform = _build_transform(train=train)
-    dataset = STL10(str(data_dir), split=split, transform=transform, download=True)
-    dataset = _subset_dataset(dataset, data_fraction)
+def get_pretrain_dataloaders(cfg: dict) -> tuple[DataLoader, DataLoader]:
+    """
+    Builds train/val dataloaders for self-supervised pretraining (unlabeled split).
 
-    return DataLoader(
-        dataset,
-        batch_size=min(batch_size, len(dataset)),
-        shuffle=shuffle,
+    Args:
+        cfg (dict): configuration dictionary with keys:
+            - batch_size (int)
+            - val_split (float)
+            - data_fraction (float)
+            - seed (int)
+            - num_workers (int)
+    """
+    pre_cfg = cfg["pretrain"]
+    seed = cfg.get("seed", 73)
+
+    full_dataset = STL10(
+        DATA_DIR,
+        split="unlabeled",
+        transform=_build_transform(train=True),
+        download=True,
+    )
+
+    # Optionally subsample dataset
+    full_dataset = _subset_dataset(full_dataset, pre_cfg.get("data_fraction", 1.0))
+
+    # Split into train/val subsets
+    n_total = len(full_dataset)
+    val_split = pre_cfg.get("val_split", 0.1)
+    n_val = int(n_total * val_split)
+    n_train = n_total - n_val
+
+    train_subset, val_subset = random_split(
+        full_dataset,
+        [n_train, n_val],
+        generator=torch.Generator().manual_seed(seed),
+    )
+    val_subset.dataset.transform = _build_transform(train=False)
+
+    batch_size = pre_cfg.get("batch_size", 512)
+    num_workers = pre_cfg.get("num_workers", 4)
+
+    train_loader = DataLoader(
+        train_subset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+    val_loader = DataLoader(
+        val_subset,
+        batch_size=batch_size,
+        shuffle=False,
         num_workers=num_workers,
         pin_memory=True,
     )
 
-
-def get_pretrain_dataloader(
-    batch_size: int,
-    data_fraction: float = 1.0,
-    data_dir: str | Path = "data",
-) -> DataLoader:
-    """Unlabeled STL-10 loader for MAE pretraining."""
-    return get_stl10_dataloader(
-        split="unlabeled",
-        data_dir=data_dir,
-        batch_size=batch_size,
-        train=True,
-        data_fraction=data_fraction,
+    print(
+        f"📦 Unlabeled pretrain split: {n_train} train, {n_val} val "
+        f"({val_split * 100:.1f}% validation)"
     )
 
+    return train_loader, val_loader
 
-def get_train_val_dataloaders(
-    batch_size: int,
-    samples_per_class: Optional[int] = None,
-    data_dir: str | Path = "data",
-) -> tuple[DataLoader, DataLoader]:
-    """Supervised STL-10 dataloaders for MAE fine-tuning."""
-    train_dataset = STL10(
-        str(data_dir), split="train", transform=_build_transform(True)
-    )
-    val_dataset = STL10(str(data_dir), split="test", transform=_build_transform(False))
 
-    # Optionally limit samples per class (semi-supervised setting)
+def get_train_dataloaders(cfg: dict) -> tuple[DataLoader, DataLoader]:
+    """
+    Builds train/val dataloaders for fine-tuning on labeled STL-10 split.
+
+    Args:
+        cfg (dict): configuration dictionary with keys:
+            - batch_size (int)
+            - samples_per_class (int, optional)
+            - seed (int)
+            - num_workers (int)
+    """
+    train_cfg = cfg["train"]
+    seed = cfg.get("seed", 73)
+
+    train_dataset = STL10(DATA_DIR, split="train", transform=_build_transform(True))
+    val_dataset = STL10(DATA_DIR, split="test", transform=_build_transform(False))
+
+    samples_per_class = train_cfg.get("samples_per_class")
     if samples_per_class is not None:
         labels = np.array(train_dataset.labels)
         train_indices = []
         for c in np.unique(labels):
             cls_idx = np.where(labels == c)[0]
-            np.random.shuffle(cls_idx)
+            np.random.default_rng(seed).shuffle(cls_idx)
             train_indices.extend(cls_idx[:samples_per_class])
         train_dataset = Subset(train_dataset, train_indices)
         print(
             f"⚙️ Using {samples_per_class} samples/class → {len(train_indices)} train samples"
         )
 
+    batch_size = train_cfg.get("batch_size", 256)
+    num_workers = train_cfg.get("num_workers", 4)
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=4,
+        num_workers=num_workers,
         pin_memory=True,
     )
     val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=4,
+        num_workers=num_workers,
         pin_memory=True,
     )
+
     return train_loader, val_loader
