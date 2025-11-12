@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import warnings
 from pathlib import Path
 
 import pytorch_lightning as pl
@@ -11,6 +12,16 @@ from pytorch_lightning.loggers import TensorBoardLogger
 
 from src.data import get_pretrain_dataloaders
 from src.training.mae import MAEPretrainModule
+
+warnings.filterwarnings(
+    "ignore",
+    "Precision 16-mixed is not supported",
+    category=UserWarning,
+)
+
+torch.set_float32_matmul_precision("high")
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 
 def parse_args():
@@ -93,13 +104,13 @@ def main():
     # Trainer
     # ------------------------------
     trainer = pl.Trainer(
-        accelerator="gpu" if torch.cuda.is_available() else "cpu",
+        accelerator="auto",
         devices=1,
         max_epochs=pre_cfg["total_epochs"],
         logger=tb_logger,
         callbacks=[ckpt_best, ckpt_last, lr_monitor],
         log_every_n_steps=10,
-        precision="16-mixed" if torch.cuda.is_available() else "32-true",
+        precision="bf16-mixed" if torch.cuda.is_available() else "32-true",
     )
 
     trainer.fit(module, train_loader, val_loader, ckpt_path=args.resume_from)

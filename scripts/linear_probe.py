@@ -1,155 +1,161 @@
 from __future__ import annotations
 
 import argparse
+import warnings
 from pathlib import Path
 
+import pytorch_lightning as pl
 import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader
-from torchvision import transforms
-from torchvision.datasets import STL10
-from tqdm import tqdm
+import yaml
+from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
+from pytorch_lightning.loggers import TensorBoardLogger
+from timm.models.vision_transformer import VisionTransformer
 
-from src.models.mae.encoder import MAEEncoder, build_2d_sincos_position_embedding
+from src.data import get_train_dataloaders
+from src.models.linear_probe import LinearProbe
+from src.training.mae import MAETrainModule
+
+warnings.filterwarnings(
+    "ignore",
+    "Precision 16-mixed is not supported",
+    category=UserWarning,
+)
+
+torch.set_float32_matmul_precision("high")
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Linear probe on pretrained MAE encoder"
+        description="Linear probe evaluation of MAE encoder"
     )
-    parser.add_argument("--encoder_ckpt", type=str, required=True)
-    parser.add_argument("--batch_size", type=int, default=256)
-    parser.add_argument("--epochs", type=int, default=50)
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--weight_decay", type=float, default=0.0)
+    parser.add_argument("--config", type=str, default="configs/mae.yaml")
     parser.add_argument(
-        "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu"
+        "--encoder_ckpt",
+        type=str,
+        required=True,
+        help="Path to pretrained MAE encoder checkpoint (.pt or .ckpt)",
     )
-    parser.add_argument("--output_dir", type=str, default="outputs/linear_probe")
     return parser.parse_args()
-
-
-def get_dataloaders(batch_size: int):
-    """Simple resize + normalize — same normalization as MAE pretraining."""
-    transform = transforms.Compose(
-        [
-            transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-        ]
-    )
-
-    train_set = STL10("data", split="train", transform=transform, download=False)
-    test_set = STL10("data", split="test", transform=transform, download=False)
-
-    train_loader = DataLoader(
-        train_set, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True
-    )
-    test_loader = DataLoader(
-        test_set, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True
-    )
-
-    return train_loader, test_loader
-
-
-def extract_features(encoder: MAEEncoder, dataloader, device):
-    """Extract mean features from encoder (no gradient)."""
-    encoder.eval()
-    feats, labels = [], []
-
-    with torch.no_grad():
-        for imgs, lbls in tqdm(dataloader, desc="Extracting features"):
-            imgs = imgs.to(device)
-            # === forward pass até o último token CLS ===
-            patch_embeddings = encoder.patchify(imgs)
-            B, C, H, W = patch_embeddings.shape
-            tokens = patch_embeddings.flatten(2).permute(2, 0, 1)
-
-            # === Fixed 2D sin-cos positional encoding ===
-            num_patches_per_dim = int(
-                (imgs.shape[2] // encoder.patchify.kernel_size[0])
-            )
-            emb_dim = encoder.patchify.out_channels
-            pos_embed = build_2d_sincos_position_embedding(
-                num_patches_per_dim, emb_dim
-            ).to(device)
-            tokens = tokens + pos_embed
-
-            cls_token = encoder.cls_token.expand(-1, B, -1)
-            tokens = torch.cat([cls_token, tokens], dim=0)
-            tokens = tokens.permute(1, 0, 2)  # (B, T, C)
-
-            out = encoder.layer_norm(encoder.transformer(tokens))
-            features = out[:, 0, :]  # CLS token feature (B, C)
-            feats.append(features.cpu())
-            labels.append(lbls)
-
-    feats = torch.cat(feats, dim=0)
-    labels = torch.cat(labels, dim=0)
-    return feats, labels
-
-
-def linear_probe(train_feats, train_labels, test_feats, test_labels, args):
-    """Train a simple linear classifier on frozen features."""
-    num_classes = len(torch.unique(train_labels))
-    in_dim = train_feats.shape[1]
-
-    model = nn.Linear(in_dim, num_classes).to(args.device)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.AdamW(
-        model.parameters(), lr=args.lr, weight_decay=args.weight_decay
-    )
-
-    for epoch in range(args.epochs):
-        model.train()
-        logits = model(train_feats.to(args.device))
-        loss = criterion(logits, train_labels.to(args.device))
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-        with torch.no_grad():
-            model.eval()
-            preds = model(test_feats.to(args.device)).argmax(dim=1)
-            acc = (preds.cpu() == test_labels).float().mean().item()
-        print(
-            f"Epoch {epoch + 1:03d}/{args.epochs} | Loss: {loss.item():.4f} | Acc: {acc:.4f}"
-        )
-
-    return acc
 
 
 def main():
     args = parse_args()
-    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
 
-    device = torch.device(args.device)
-    print(f"⚙️ Using device: {device}")
+    # ------------------------------
+    # Load configuration
+    # ------------------------------
+    with open(args.config, "r") as f:
+        cfg = yaml.safe_load(f)
 
-    # === Load pretrained encoder ===
-    encoder = MAEEncoder()
-    ckpt = torch.load(args.encoder_ckpt, map_location="cpu")
-    state_dict = ckpt.get("state_dict", ckpt)
-    encoder_state = {
-        k.replace("encoder.", ""): v for k, v in state_dict.items() if "encoder." in k
-    }
-    encoder.load_state_dict(encoder_state, strict=False)
-    encoder = encoder.to(device)
-    print("✅ Loaded encoder checkpoint.")
+    seed = cfg.get("seed", 73)
+    pl.seed_everything(seed, workers=True)
 
-    # === Data ===
-    train_loader, test_loader = get_dataloaders(args.batch_size)
+    model_cfg = cfg["model"]
+    train_cfg = cfg["train"]
+    log_cfg = cfg["logging"]
 
-    # === Extract features ===
-    train_feats, train_labels = extract_features(encoder, train_loader, device)
-    test_feats, test_labels = extract_features(encoder, test_loader, device)
-    print(f"Features: {train_feats.shape}, Labels: {train_labels.shape}")
+    # ------------------------------
+    # Output dirs
+    # ------------------------------
+    output_dir = (
+        Path(log_cfg["output_dir_base"])
+        / "linear_probe"
+        / train_cfg.get("output_dir_suffix", "default")
+    )
+    ckpt_dir = output_dir / "checkpoints"
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    train_feats = nn.functional.normalize(train_feats, dim=1)
-    test_feats = nn.functional.normalize(test_feats, dim=1)
+    # ------------------------------
+    # Data
+    # ------------------------------
+    train_loader, val_loader = get_train_dataloaders(cfg)
 
-    # === Train linear probe ===
-    acc = linear_probe(train_feats, train_labels, test_feats, test_labels, args)
-    print(f"\n🏁 Final Linear Probe Accuracy: {acc:.4f}")
+    # ------------------------------
+    # Load pretrained encoder
+    # ------------------------------
+    print(f"🧩 Loading pretrained encoder from: {args.encoder_ckpt}")
+    encoder = VisionTransformer(
+        img_size=model_cfg["general"]["image_size"],
+        patch_size=model_cfg["general"]["patch_size"],
+        in_chans=model_cfg["general"]["in_chans"],
+        embed_dim=model_cfg["encoder"]["embed_dim"],
+        depth=model_cfg["encoder"]["depth"],
+        num_heads=model_cfg["encoder"]["num_heads"],
+        num_classes=0,  # no head
+    )
+
+    # Load pretrained weights
+    state = torch.load(args.encoder_ckpt, map_location="cpu")
+    if "state_dict" in state:
+        state = state["state_dict"]
+    encoder.load_state_dict(state, strict=False)
+
+    # ------------------------------
+    # Build linear probe
+    # ------------------------------
+    model = LinearProbe(
+        encoder=encoder,
+        num_classes=10,
+        head_cfg=model_cfg.get("head", {}),
+    )
+
+    module = MAETrainModule(
+        pretrained_encoder=encoder,
+        model_cfg=model_cfg,
+        training_cfg=train_cfg,
+    )
+    module.model = model
+
+    # ------------------------------
+    # Logging + Checkpoints
+    # ------------------------------
+    tb_logger = TensorBoardLogger(save_dir=str(output_dir / "logs"), name="tb")
+
+    ckpt_best = ModelCheckpoint(
+        dirpath=ckpt_dir,
+        filename="best",
+        save_top_k=1,
+        monitor="val_acc",
+        mode="max",
+        save_last=False,
+        verbose=True,
+    )
+    ckpt_last = ModelCheckpoint(
+        dirpath=ckpt_dir,
+        filename="last",
+        save_top_k=1,
+        every_n_epochs=1,
+        verbose=True,
+    )
+    lr_monitor = LearningRateMonitor(logging_interval="epoch")
+
+    # ------------------------------
+    # Trainer
+    # ------------------------------
+    trainer = pl.Trainer(
+        accelerator="auto",
+        devices=1,
+        max_epochs=train_cfg["total_epochs"],
+        logger=tb_logger,
+        callbacks=[ckpt_best, ckpt_last, lr_monitor],
+        log_every_n_steps=10,
+        precision="bf16-mixed" if torch.cuda.is_available() else "32-true",
+    )
+
+    trainer.fit(module, train_loader, val_loader)
+
+    # ------------------------------
+    # Save model + report
+    # ------------------------------
+    model_path = output_dir / log_cfg["model_path"]
+    torch.save(model.state_dict(), model_path)
+
+    print("\n✅ Linear probe training complete")
+    print(f"📦 Model weights saved to: {model_path}")
+    print(f"🏁 Best checkpoint: {ckpt_best.best_model_path}")
+    print(f"📈 Logs available at: {tb_logger.log_dir}")
 
 
 if __name__ == "__main__":

@@ -47,7 +47,7 @@ train:
 test:
   batch_size: 512
   num_workers: 4
-  output_dir_suffix: mae_400
+  output_dir_suffix: mae_100_400
 
 logging:
   output_dir_base: outputs
