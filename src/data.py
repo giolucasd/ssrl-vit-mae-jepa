@@ -4,14 +4,17 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal, Optional
 
-import torch
+import numpy as np
 from torch.utils.data import DataLoader, Subset
 from torchvision import transforms
 from torchvision.datasets import STL10
 
 
-def build_transform(train: bool = True) -> transforms.Compose:
-    """Data augmentations for STL-10."""
+# ============================================================
+# 🔧 Helpers
+# ============================================================
+def _build_transform(train: bool = True) -> transforms.Compose:
+    """Standard STL-10 augmentations."""
     if train:
         return transforms.Compose(
             [
@@ -33,70 +36,91 @@ def build_transform(train: bool = True) -> transforms.Compose:
         )
 
 
+def _subset_dataset(dataset, fraction: float) -> Subset | STL10:
+    """Optionally take a fraction of a dataset."""
+    if fraction < 1.0:
+        n = int(len(dataset) * fraction)
+        return Subset(dataset, range(n))
+    return dataset
+
+
+# ============================================================
+# 🧩 Dataloaders
+# ============================================================
 def get_stl10_dataloader(
-    split: Literal["unlabeled", "train", "test"] = "unlabeled",
+    split: Literal["unlabeled", "train", "test"],
     data_dir: str | Path = "data",
     batch_size: int = 512,
+    train: bool = True,
     data_fraction: float = 1.0,
     num_workers: int = 4,
-    train: bool = True,
     shuffle: bool = True,
 ) -> DataLoader:
-    """Build a DataLoader for STL-10 (supports unlabeled, train, test)."""
-    transform = build_transform(train=train)
-
+    """General STL-10 DataLoader factory."""
+    transform = _build_transform(train=train)
     dataset = STL10(str(data_dir), split=split, transform=transform, download=True)
+    dataset = _subset_dataset(dataset, data_fraction)
 
-    if data_fraction < 1.0:
-        n = int(len(dataset) * data_fraction)
-        dataset = Subset(dataset, range(n))
-
-    loader = DataLoader(
+    return DataLoader(
         dataset,
         batch_size=min(batch_size, len(dataset)),
         shuffle=shuffle,
         num_workers=num_workers,
         pin_memory=True,
     )
-    return loader
 
 
-def get_pretrain_dataloader(batch_size: int, data_fraction: float = 1.0) -> DataLoader:
-    """Unlabeled STL-10 for MAE pretraining."""
+def get_pretrain_dataloader(
+    batch_size: int,
+    data_fraction: float = 1.0,
+    data_dir: str | Path = "data",
+) -> DataLoader:
+    """Unlabeled STL-10 loader for MAE pretraining."""
     return get_stl10_dataloader(
         split="unlabeled",
+        data_dir=data_dir,
         batch_size=batch_size,
+        train=True,
         data_fraction=data_fraction,
-        train=True,
     )
 
 
-def get_finetune_dataloaders(batch_size: int, samples_per_class: Optional[int] = None):
-    """Supervised dataloaders for fine-tuning (train/test)."""
-    train_loader = get_stl10_dataloader(
-        split="train",
-        batch_size=batch_size,
-        train=True,
-        shuffle=True,
+def get_train_val_dataloaders(
+    batch_size: int,
+    samples_per_class: Optional[int] = None,
+    data_dir: str | Path = "data",
+) -> tuple[DataLoader, DataLoader]:
+    """Supervised STL-10 dataloaders for MAE fine-tuning."""
+    train_dataset = STL10(
+        str(data_dir), split="train", transform=_build_transform(True)
     )
-    test_loader = get_stl10_dataloader(
-        split="test",
-        batch_size=batch_size,
-        train=False,
-        shuffle=False,
-    )
+    val_dataset = STL10(str(data_dir), split="test", transform=_build_transform(False))
 
-    # Optionally limit number of labeled samples per class
+    # Optionally limit samples per class (semi-supervised setting)
     if samples_per_class is not None:
-        # naive class balancing subset
-        targets = torch.tensor(train_loader.dataset.labels)
-        indices = torch.cat(
-            [
-                (targets == c).nonzero(as_tuple=True)[0][:samples_per_class]
-                for c in range(10)
-            ]
+        labels = np.array(train_dataset.labels)
+        train_indices = []
+        for c in np.unique(labels):
+            cls_idx = np.where(labels == c)[0]
+            np.random.shuffle(cls_idx)
+            train_indices.extend(cls_idx[:samples_per_class])
+        train_dataset = Subset(train_dataset, train_indices)
+        print(
+            f"⚙️ Using {samples_per_class} samples/class → {len(train_indices)} train samples"
         )
-        subset = Subset(train_loader.dataset, indices)
-        train_loader = DataLoader(subset, batch_size=batch_size, shuffle=True)
 
-    return train_loader, test_loader
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=4,
+        pin_memory=True,
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=True,
+    )
+    return train_loader, val_loader
