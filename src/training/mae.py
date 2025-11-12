@@ -46,6 +46,21 @@ class MAEPretrainModule(pl.LightningModule):
         self.log("train_loss", loss, prog_bar=True, on_epoch=True)
         return loss
 
+    def validation_step(self, batch, batch_idx):
+        imgs, _ = batch
+        preds, targets = self(imgs)
+        loss = self.criterion(preds, targets)
+        self.log("val_loss", loss, prog_bar=True, on_epoch=True)
+        return loss
+
+    def validation_epoch_end(self, outputs):
+        """Compute mean validation loss per epoch (useful for reporting)."""
+        if len(outputs) == 0:
+            return
+        mean_val_loss = torch.stack(outputs).mean()
+        self.log("val_loss_epoch", mean_val_loss, prog_bar=True)
+        print(f"📉 Validation Loss (mean): {mean_val_loss:.5f}")
+
     def configure_optimizers(self):
         effective_lr = self.lr * self.batch_size / 256
         optimizer = AdamW(
@@ -107,15 +122,9 @@ class MAETrainModule(pl.LightningModule):
             else:
                 self.unfreeze_encoder()
 
-    # ------------------------------
-    # Forward
-    # ------------------------------
     def forward(self, x: torch.Tensor):
         return self.model(x)
 
-    # ------------------------------
-    # Training Step
-    # ------------------------------
     def training_step(self, batch, batch_idx):
         imgs, labels = batch
         logits = self(imgs)
@@ -126,9 +135,6 @@ class MAETrainModule(pl.LightningModule):
         self.log("train_acc", acc, prog_bar=True)
         return loss
 
-    # ------------------------------
-    # Validation Step
-    # ------------------------------
     def validation_step(self, batch, batch_idx):
         imgs, labels = batch
         logits = self(imgs)
@@ -139,9 +145,6 @@ class MAETrainModule(pl.LightningModule):
         self.log("val_acc", acc, prog_bar=True)
         return loss
 
-    # ------------------------------
-    # Optimizer + Scheduler
-    # ------------------------------
     def configure_optimizers(self):
         optimizer = AdamW(
             filter(lambda p: p.requires_grad, self.model.parameters()),
@@ -164,9 +167,6 @@ class MAETrainModule(pl.LightningModule):
             },
         }
 
-    # ------------------------------
-    # Encoder freezing utilities
-    # ------------------------------
     def freeze_encoder(self):
         if self.model is None:
             return
@@ -182,9 +182,6 @@ class MAETrainModule(pl.LightningModule):
             param.requires_grad = True
         print("🔥 Encoder unfrozen (all parameters trainable).")
 
-    # ------------------------------
-    # Checkpoint loading hook
-    # ------------------------------
     def on_load_checkpoint(self, checkpoint):
         """Rebuild classifier if loading from checkpoint without explicit model."""
         if self.model is None:
