@@ -53,14 +53,6 @@ class MAEPretrainModule(pl.LightningModule):
         self.log("val_loss", loss, prog_bar=True, on_epoch=True)
         return loss
 
-    def validation_epoch_end(self, outputs):
-        """Compute mean validation loss per epoch (useful for reporting)."""
-        if len(outputs) == 0:
-            return
-        mean_val_loss = torch.stack(outputs).mean()
-        self.log("val_loss_epoch", mean_val_loss, prog_bar=True)
-        print(f"📉 Validation Loss (mean): {mean_val_loss:.5f}")
-
     def configure_optimizers(self):
         effective_lr = self.lr * self.batch_size / 256
         optimizer = AdamW(

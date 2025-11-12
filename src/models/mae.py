@@ -110,7 +110,7 @@ class MAEClassifier(nn.Module):
         self.encoder = pretrained_encoder
         head_cfg = head_cfg or {}
 
-        embed_dim = head_cfg.get("emb_dim", pretrained_encoder.embed_dim)
+        embed_dim = head_cfg.get("embed_dim", pretrained_encoder.embed_dim)
         dropout = head_cfg.get("dropout", 0.2)
         pool_type = head_cfg.get("pool", "mean")  # or "cls"
 

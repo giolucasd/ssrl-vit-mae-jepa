@@ -1,3 +1,5 @@
+seed: 73
+
 model:
   general:
     mask_ratio: 0.75
@@ -6,39 +8,47 @@ model:
     in_chans: 3
 
   encoder:
-    embed_dim: 384
+    embed_dim: 256
     depth: 12
-    num_heads: 6
+    num_heads: 4
 
   decoder:
-    decoder_embed_dim: 512
+    decoder_embed_dim: 256
     decoder_depth: 4
-    decoder_num_heads: 6
+    decoder_num_heads: 4
 
   head:
-    emb_dim: 384
+    embed_dim: 256
     dropout: 0.2
+    pool: mean
 
 pretrain:
-  seed: 73
   total_epochs: 200
   warmup_epochs: 20
   batch_size: 512
   base_learning_rate: 1.5e-4
   weight_decay: 0.05
   data_fraction: 1.00
+  val_split: 0.05
+  num_workers: 4
+  output_dir_suffix: mae_100
 
 train:
-  seed: 73
   samples_per_class: 400
   total_epochs: 100
   warmup_epochs: 5
-  batch_size: 256
+  batch_size: 512
   learning_rate: 3e-4
   weight_decay: 0.05
   freeze_encoder: true
+  num_workers: 4
+  output_dir_suffix: mae_400
+
+test:
+  batch_size: 512
+  num_workers: 4
+  output_dir_suffix: mae_400
 
 logging:
-  output_dir: outputs/pretrain/mae_100
+  output_dir_base: outputs
   model_path: vit-mae.pt
-  num_workers: 4

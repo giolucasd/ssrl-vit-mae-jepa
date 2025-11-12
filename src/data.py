@@ -111,32 +111,39 @@ def get_pretrain_dataloaders(cfg: dict) -> tuple[DataLoader, DataLoader]:
 def get_train_dataloaders(cfg: dict) -> tuple[DataLoader, DataLoader]:
     """
     Builds train/val dataloaders for fine-tuning on labeled STL-10 split.
+    The training set is sampled with `samples_per_class`, and the remaining
+    labeled data becomes the validation set.
 
     Args:
         cfg (dict): configuration dictionary with keys:
             - batch_size (int)
-            - samples_per_class (int, optional)
+            - samples_per_class (int)
             - seed (int)
             - num_workers (int)
     """
     train_cfg = cfg["train"]
     seed = cfg.get("seed", 73)
 
-    train_dataset = STL10(DATA_DIR, split="train", transform=_build_transform(True))
-    val_dataset = STL10(DATA_DIR, split="test", transform=_build_transform(False))
+    full_dataset = STL10(DATA_DIR, split="train", transform=_build_transform(True))
+    labels = np.array(full_dataset.labels)
 
-    samples_per_class = train_cfg.get("samples_per_class")
-    if samples_per_class is not None:
-        labels = np.array(train_dataset.labels)
-        train_indices = []
-        for c in np.unique(labels):
-            cls_idx = np.where(labels == c)[0]
-            np.random.default_rng(seed).shuffle(cls_idx)
-            train_indices.extend(cls_idx[:samples_per_class])
-        train_dataset = Subset(train_dataset, train_indices)
-        print(
-            f"⚙️ Using {samples_per_class} samples/class → {len(train_indices)} train samples"
-        )
+    samples_per_class = train_cfg.get("samples_per_class", 400)
+    train_indices, val_indices = [], []
+
+    for c in np.unique(labels):
+        cls_idx = np.where(labels == c)[0]
+        np.random.default_rng(seed).shuffle(cls_idx)
+        train_indices.extend(cls_idx[:samples_per_class])
+        val_indices.extend(cls_idx[samples_per_class:])
+
+    train_dataset = Subset(full_dataset, train_indices)
+    val_dataset = Subset(full_dataset, val_indices)
+    val_dataset.dataset.transform = _build_transform(train=False)
+
+    print(
+        f"⚙️ Using {samples_per_class} samples/class → {len(train_indices)} train, "
+        f"{len(val_indices)} val"
+    )
 
     batch_size = train_cfg.get("batch_size", 256)
     num_workers = train_cfg.get("num_workers", 4)
@@ -157,3 +164,24 @@ def get_train_dataloaders(cfg: dict) -> tuple[DataLoader, DataLoader]:
     )
 
     return train_loader, val_loader
+
+
+def get_test_dataloader(cfg: dict) -> DataLoader:
+    """Returns only the STL-10 test split for final evaluation."""
+    test_cfg = cfg.get("test", {})
+    batch_size = test_cfg.get("batch_size", 256)
+    num_workers = test_cfg.get("num_workers", 4)
+
+    test_dataset = STL10(DATA_DIR, split="test", transform=_build_transform(False))
+
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+
+    print(f"🧪 Loaded STL-10 test split: {len(test_dataset)} samples")
+
+    return test_loader
