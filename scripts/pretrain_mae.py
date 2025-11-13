@@ -19,6 +19,12 @@ warnings.filterwarnings(
     category=UserWarning,
 )
 
+warnings.filterwarnings(
+    "ignore",
+    "Please use the new API settings to control TF32 behavior",
+    category=UserWarning,
+)
+
 torch.set_float32_matmul_precision("high")
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False

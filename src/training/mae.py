@@ -28,12 +28,11 @@ class MAEPretrainModule(pl.LightningModule):
             encoder_cfg=model_cfg["encoder"],
             decoder_cfg=model_cfg["decoder"],
         )
-        self.lr = training_cfg.get("base_learning_rate", 1.5e-4)
-        self.weight_decay = training_cfg.get("weight_decay", 0.05)
-        self.warmup_epochs = training_cfg.get("warmup_epochs", 20)
-        self.total_epochs = training_cfg.get("total_epochs", 200)
-        self.batch_size = training_cfg.get("batch_size", 512)
-
+        self.lr = float(training_cfg.get("base_learning_rate", 1.5e-4))
+        self.weight_decay = float(training_cfg.get("weight_decay", 0.05))
+        self.warmup_epochs = int(training_cfg.get("warmup_epochs", 20))
+        self.total_epochs = int(training_cfg.get("total_epochs", 200))
+        self.batch_size = int(training_cfg.get("batch_size", 512))
         self.criterion = torch.nn.MSELoss()
 
     def forward(self, x: torch.Tensor):
@@ -87,10 +86,10 @@ class MAETrainModule(pl.LightningModule):
         self.model_cfg = model_cfg or {}
         self.training_cfg = training_cfg or {}
 
-        self.learning_rate = self.training_cfg.get("learning_rate", 3e-4)
-        self.weight_decay = self.training_cfg.get("weight_decay", 0.05)
-        self.warmup_epochs = self.training_cfg.get("warmup_epochs", 5)
-        self.total_epochs = self.training_cfg.get("total_epochs", 100)
+        self.learning_rate = float(training_cfg.get("learning_rate", 3e-4))
+        self.weight_decay = float(training_cfg.get("weight_decay", 0.05))
+        self.warmup_epochs = int(training_cfg.get("warmup_epochs", 5))
+        self.total_epochs = int(training_cfg.get("total_epochs", 100))
         self.freeze_encoder_flag = self.training_cfg.get("freeze_encoder", True)
         self.num_classes = num_classes
 
