@@ -25,7 +25,7 @@ warnings.filterwarnings(
     category=UserWarning,
 )
 
-torch.set_float32_matmul_precision("high")
+torch.set_float32_matmul_precision("medium")
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
@@ -70,6 +70,14 @@ def main():
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------
+    # Save a copy of the config
+    # ------------------------------
+    config_copy_path = output_dir / "config.yaml"
+    with open(config_copy_path, "w") as f_out:
+        yaml.safe_dump(cfg, f_out)
+    print(f"📝 Saved config snapshot to: {config_copy_path}")
+
+    # ------------------------------
     # Data
     # ------------------------------
     train_loader, val_loader = get_pretrain_dataloaders(cfg)
@@ -103,6 +111,15 @@ def main():
         every_n_epochs=1,
         verbose=True,
     )
+    ckpt_periodic = ModelCheckpoint(
+        dirpath=ckpt_dir,
+        filename="epoch-{epoch:03d}",
+        save_top_k=-1,  # all checkpoints
+        every_n_epochs=25,  # save every 25 epochs
+        save_weights_only=True,
+        save_last=False,
+        verbose=False,
+    )
 
     lr_monitor = LearningRateMonitor(logging_interval="epoch")
 
@@ -114,9 +131,11 @@ def main():
         devices=1,
         max_epochs=pre_cfg["total_epochs"],
         logger=tb_logger,
-        callbacks=[ckpt_best, ckpt_last, lr_monitor],
+        callbacks=[ckpt_best, ckpt_last, ckpt_periodic, lr_monitor],
         log_every_n_steps=10,
         precision="bf16-mixed" if torch.cuda.is_available() else "32-true",
+        gradient_clip_val=1.0,
+        gradient_clip_algorithm="norm",
     )
 
     trainer.fit(module, train_loader, val_loader, ckpt_path=args.resume_from)

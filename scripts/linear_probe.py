@@ -27,7 +27,7 @@ warnings.filterwarnings(
     category=UserWarning,
 )
 
-torch.set_float32_matmul_precision("high")
+torch.set_float32_matmul_precision("medium")
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
@@ -72,6 +72,14 @@ def main():
     )
     ckpt_dir = output_dir / "checkpoints"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+    # ------------------------------
+    # Save a copy of the config
+    # ------------------------------
+    config_copy_path = output_dir / "config.yaml"
+    with open(config_copy_path, "w") as f_out:
+        yaml.safe_dump(cfg, f_out)
+    print(f"📝 Saved config snapshot to: {config_copy_path}")
 
     # ------------------------------
     # Data
@@ -148,6 +156,8 @@ def main():
         callbacks=[ckpt_best, ckpt_last, lr_monitor],
         log_every_n_steps=10,
         precision="bf16-mixed" if torch.cuda.is_available() else "32-true",
+        gradient_clip_val=1.0,
+        gradient_clip_algorithm="norm",
     )
 
     trainer.fit(module, train_loader, val_loader)

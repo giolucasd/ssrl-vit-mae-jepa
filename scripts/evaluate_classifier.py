@@ -25,7 +25,7 @@ warnings.filterwarnings(
     category=UserWarning,
 )
 
-torch.set_float32_matmul_precision("high")
+torch.set_float32_matmul_precision("medium")
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
@@ -105,6 +105,8 @@ def main():
         devices=1,
         logger=tb_logger,
         precision="bf16-mixed" if torch.cuda.is_available() else "32-true",
+        gradient_clip_val=1.0,
+        gradient_clip_algorithm="norm",
     )
 
     # ------------------------------
