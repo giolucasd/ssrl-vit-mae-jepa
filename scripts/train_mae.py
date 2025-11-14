@@ -1,243 +1,196 @@
 from __future__ import annotations
 
 import argparse
-import json
+import warnings
 from pathlib import Path
 
-import numpy as np
 import pytorch_lightning as pl
 import torch
-from torch.utils.data import DataLoader, Subset
-from torchvision import transforms
-from torchvision.datasets import STL10
+import yaml
+from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
+from pytorch_lightning.loggers import TensorBoardLogger
 
-from src.models.mae.encoder import MAEEncoder
-from src.training.mae_trainers import MAETrainModule
+from src.data import get_train_dataloaders
+from src.models.mae import MaskedAutoencoder
+from src.training.mae import MAETrainModule
+
+warnings.filterwarnings(
+    "ignore",
+    "Precision 16-mixed is not supported",
+    category=UserWarning,
+)
+
+warnings.filterwarnings(
+    "ignore",
+    "Please use the new API settings to control TF32 behavior",
+    category=UserWarning,
+)
+
+torch.set_float32_matmul_precision("medium")
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Train MAE encoder on STL-10 classification"
+        description="Fine-tune or train MAE encoder on classification task"
     )
-    parser.add_argument("--seed", type=int, default=73)
+    parser.add_argument("--config", type=str, default="configs/mae.yaml")
     parser.add_argument(
         "--encoder_ckpt",
         type=str,
         default=None,
-        help="Path to pretrained MAE encoder weights",
+        help="Path to pretrained MAE encoder weights (.pt or .ckpt)",
     )
     parser.add_argument(
         "--classifier_ckpt",
         type=str,
         default=None,
-        help="Optional path to a full classifier checkpoint for fine-tuning.",
+        help="Path to full classifier checkpoint (for fine-tuning continuation)",
     )
-
-    parser.add_argument("--batch_size", type=int, default=512)
-    parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--weight_decay", type=float, default=0.05)
-    parser.add_argument(
-        "--freeze_encoder",
-        type=bool,
-        default=True,
-        help="Freeze encoder weights during training",
-    )
-    parser.add_argument(
-        "--samples_per_class",
-        type=int,
-        default=400,
-        choices=[10, 25, 50, 100, 200, 300, 400],
-        help="Number of labeled samples per class to use for training. Remaining samples are used for validation.",
-    )
-    parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--warmup_epochs", type=int, default=10)
-    parser.add_argument("--output_dir", type=str, default="outputs/train")
     return parser.parse_args()
-
-
-def get_dataloaders(
-    data_dir: Path,
-    output_dir: Path,
-    batch_size: int,
-    samples_per_class: int | None = None,
-):
-    transform_train = transforms.Compose(
-        [
-            transforms.RandomResizedCrop(96, scale=(0.8, 1.0)),
-            transforms.ColorJitter(0.4, 0.4, 0.4, 0.1),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize(0.5, 0.5),
-        ]
-    )
-
-    transform_val = transforms.Compose(
-        [
-            transforms.ToTensor(),
-            transforms.Normalize(0.5, 0.5),
-        ]
-    )
-
-    full_train_ds = STL10(
-        str(data_dir),
-        split="train",
-        transform=transform_train,
-        download=False,
-    )
-
-    # ===============================
-    # Subsample labeled examples per class
-    # ===============================
-    if samples_per_class is not None:
-        labels = np.array(full_train_ds.labels)
-        indices_per_class = {
-            cls: np.where(labels == cls)[0] for cls in np.unique(labels)
-        }
-
-        selected_indices = []
-        val_indices = []
-
-        for cls, idxs in indices_per_class.items():
-            np.random.shuffle(idxs)
-            n = min(samples_per_class, len(idxs))
-            selected_indices.extend(idxs[:n])
-            val_indices.extend(idxs[n:])  # leftover for validation
-
-        train_ds = Subset(full_train_ds, selected_indices)
-        val_ds = Subset(full_train_ds, val_indices)
-
-        print(
-            f"⚙️ Using {samples_per_class} samples per class "
-            f"→ {len(selected_indices)} total training samples, "
-            f"{len(val_indices)} for validation."
-        )
-
-        with open(output_dir / "train_indices.json", "w") as f:
-            json.dump([int(i) for i in selected_indices], f)
-
-    else:
-        # Default: use full train for training, test for validation
-        train_ds = full_train_ds
-        val_ds = STL10(
-            str(data_dir),
-            split="test",
-            transform=transform_val,
-            download=False,
-        )
-
-    train_loader = DataLoader(
-        train_ds,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=4,
-        pin_memory=True,
-    )
-    val_loader = DataLoader(
-        val_ds,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=4,
-        pin_memory=True,
-    )
-
-    return train_loader, val_loader
 
 
 def main():
     args = parse_args()
-    pl.seed_everything(args.seed)
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
 
-    data_dir = Path("data")
-    train_loader, val_loader = get_dataloaders(
-        data_dir,
-        output_dir,
-        args.batch_size,
-        samples_per_class=args.samples_per_class,
+    # ------------------------------
+    # Load configuration
+    # ------------------------------
+    with open(args.config, "r") as f:
+        cfg = yaml.safe_load(f)
+
+    seed = cfg.get("seed", 73)
+    pl.seed_everything(seed, workers=True)
+
+    model_cfg = cfg["model"]
+    train_cfg = cfg["train"]
+    log_cfg = cfg["logging"]
+
+    # ------------------------------
+    # Output dirs
+    # ------------------------------
+    output_dir = (
+        Path(log_cfg["output_dir_base"])
+        / "train"
+        / train_cfg.get("output_dir_suffix", "default")
     )
+    ckpt_dir = output_dir / "checkpoints"
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    # --------------------------------------------------
-    # CASE 1: Fine-tuning from full classifier checkpoint
-    # --------------------------------------------------
+    # ------------------------------
+    # Save a copy of the config
+    # ------------------------------
+    config_copy_path = output_dir / "config.yaml"
+    with open(config_copy_path, "w") as f_out:
+        yaml.safe_dump(cfg, f_out)
+    print(f"📝 Saved config snapshot to: {config_copy_path}")
+
+    # ------------------------------
+    # Data
+    # ------------------------------
+    train_loader, val_loader = get_train_dataloaders(cfg)
+
+    # ------------------------------
+    # Model setup
+    # ------------------------------
     if args.classifier_ckpt:
-        print(f"🔁 Loading full classifier checkpoint from {args.classifier_ckpt}")
+        print(f"🔁 Loading full classifier checkpoint: {args.classifier_ckpt}")
         module = MAETrainModule.load_from_checkpoint(
             args.classifier_ckpt,
             map_location="cpu",
-            strict=False,  # allow partial state loading if needed
+            strict=False,
         )
-
-        # Optionally unfreeze encoder for fine-tuning
-        if args.freeze_encoder is False:
-            print("🧠 Unfreezing encoder for fine-tuning...")
-            module.model.encoder_unfreeze()
-
-        # Optionally override optimizer hyperparams
-        module.hparams.learning_rate = args.lr
-        module.hparams.weight_decay = args.weight_decay
-        module.hparams.warmup_epochs = args.warmup_epochs
-        module.hparams.total_epochs = args.epochs
-
-    # --------------------------------------------------
-    # CASE 2: Start from pretrained encoder weights only
-    # --------------------------------------------------
     else:
-        print(f"🧩 Loading pretrained encoder from {args.encoder_ckpt}")
-        encoder = MAEEncoder()
-        ckpt = torch.load(args.encoder_ckpt, map_location="cpu")
-        state_dict = ckpt["state_dict"]
-
-        encoder_state_dict = {
-            k.replace("encoder.", ""): v
-            for k, v in state_dict.items()
-            if k.startswith("encoder.")
-        }
-        missing, unexpected = encoder.load_state_dict(encoder_state_dict, strict=False)
-        print(
-            f"Loaded encoder weights: {len(encoder_state_dict)} params "
-            f"({len(missing)} missing, {len(unexpected)} unexpected)"
+        # Build model from encoder weights or from scratch
+        print(f"🧩 Loading pretrained encoder: {args.encoder_ckpt}")
+        mae = MaskedAutoencoder(
+            general_cfg=model_cfg["general"],
+            encoder_cfg=model_cfg["encoder"],
+            decoder_cfg=model_cfg["decoder"],
         )
+
+        if args.encoder_ckpt:
+            ckpt = torch.load(args.encoder_ckpt, map_location="cpu")
+            state_dict = ckpt.get("state_dict", ckpt)
+            # Extract encoder weights
+            encoder_state = {
+                k.replace("encoder.", ""): v
+                for k, v in state_dict.items()
+                if "encoder." in k
+            }
+            missing, unexpected = mae.encoder.load_state_dict(
+                encoder_state, strict=False
+            )
+            print(
+                f"✅ Loaded encoder weights: {len(encoder_state)} tensors "
+                f"({len(missing)} missing, {len(unexpected)} unexpected)"
+            )
+        else:
+            print("⚠️ No encoder checkpoint provided — training from scratch!")
 
         module = MAETrainModule(
-            pretrained_encoder=encoder,
-            learning_rate=args.lr,
-            weight_decay=args.weight_decay,
-            warmup_epochs=args.warmup_epochs,
-            total_epochs=args.epochs,
-            freeze_encoder=args.freeze_encoder,
+            pretrained_encoder=mae.encoder.vit,
+            model_cfg=model_cfg,
+            training_cfg=train_cfg,
         )
 
-    # --------------------------------------------------
-    # Logger + Checkpoints
-    # --------------------------------------------------
-    tb_logger = pl.loggers.TensorBoardLogger(save_dir=str(output_dir), name="logs")
-    ckpt_callback = pl.callbacks.ModelCheckpoint(
-        dirpath=output_dir / "checkpoints",
+    # Unfreeze encoder if configured
+    if not train_cfg.get("freeze_encoder", True):
+        print("🧠 Unfreezing encoder for fine-tuning...")
+        module.unfreeze_encoder()
+
+    # ------------------------------
+    # Logging + Checkpoints
+    # ------------------------------
+    tb_logger = TensorBoardLogger(save_dir=str(output_dir / "logs"), name="tb")
+
+    ckpt_best = ModelCheckpoint(
+        dirpath=ckpt_dir,
+        filename="best",
         save_top_k=1,
         monitor="val_acc",
         mode="max",
-        filename="best-valacc-{epoch:03d}-{val_acc:.4f}",
+        save_last=False,
+        verbose=True,
+    )
+    ckpt_last = ModelCheckpoint(
+        dirpath=ckpt_dir,
+        filename="last",
+        save_top_k=1,
+        every_n_epochs=1,
+        verbose=True,
     )
 
-    # --------------------------------------------------
+    lr_monitor = LearningRateMonitor(logging_interval="epoch")
+
+    # ------------------------------
     # Trainer
-    # --------------------------------------------------
+    # ------------------------------
     trainer = pl.Trainer(
         accelerator="auto",
         devices=1,
-        max_epochs=args.epochs,
+        max_epochs=train_cfg["total_epochs"],
         logger=tb_logger,
-        callbacks=[ckpt_callback],
-        precision="16-mixed" if torch.cuda.is_available() else "32-true",
+        callbacks=[ckpt_best, ckpt_last, lr_monitor],
         log_every_n_steps=10,
+        precision="bf16-mixed" if torch.cuda.is_available() else "32-true",
+        gradient_clip_val=1.0,
+        gradient_clip_algorithm="norm",
     )
 
     trainer.fit(module, train_loader, val_loader)
 
-    print(
-        f"\n✅ Training finished. Best model saved to: {ckpt_callback.best_model_path}"
-    )
+    # ------------------------------
+    # Save model + summary
+    # ------------------------------
+    model_path = output_dir / log_cfg["model_path"]
+    torch.save(module.model.state_dict(), model_path)
+
+    print("\n✅ Training complete")
+    print(f"📦 Model weights saved to: {model_path}")
+    print(f"🏁 Best checkpoint: {ckpt_best.best_model_path}")
+    print(f"📈 Logs available at: {tb_logger.log_dir}")
 
 
 if __name__ == "__main__":
