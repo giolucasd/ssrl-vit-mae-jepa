@@ -2,52 +2,54 @@ seed: 73
 
 model:
   general:
-    mask_ratio: 0.75
     image_size: 96
-    patch_size: 6
+    patch_size: 8
     in_chans: 3
 
   encoder:
-    embed_dim: 384
-    depth: 12
-    num_heads: 6
+    embed_dim: 192
+    depth: 8
+    num_heads: 3
 
   decoder:
-    decoder_embed_dim: 512
-    decoder_depth: 8
-    decoder_num_heads: 8
+    decoder_embed_dim: 128
+    decoder_depth: 2
+    decoder_num_heads: 4
 
   head:
-    embed_dim: 384
-    dropout: 0.2
+    embed_dim: 192
+    dropout: 0.0
     pool: cls
 
 pretrain:
-  total_epochs: 100
-  warmup_epochs: 20
-  batch_size: 200
+  mask_ratio_start: 0.75
+  mask_ratio_end: 0.75
+  mask_ramp_epochs: 10
+  total_epochs: 400
+  warmup_epochs: 10
+  batch_size: 1024
   base_learning_rate: 1.5e-4
   weight_decay: 0.05
   data_fraction: 1.00
   val_split: 0.05
   num_workers: 4
-  output_dir_suffix: mae_100
+  output_dir_suffix: mae_t2
 
 train:
   samples_per_class: 400
-  total_epochs: 100
+  total_epochs: 200
   warmup_epochs: 10
-  batch_size: 512
+  batch_size: 2048
   learning_rate: 3e-4
   weight_decay: 0.05
   freeze_encoder: true
   num_workers: 4
-  output_dir_suffix: mae_400
+  output_dir_suffix: mae_t2
 
 test:
-  batch_size: 512
+  batch_size: 2048
   num_workers: 4
-  output_dir_suffix: mae_100_400
+  output_dir_suffix: mae_t2
 
 logging:
   output_dir_base: outputs
