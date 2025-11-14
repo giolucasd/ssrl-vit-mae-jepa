@@ -9,6 +9,7 @@ import torch
 import yaml
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
+from timm.models.vision_transformer import VisionTransformer
 
 from src.data import get_train_dataloaders
 from src.models.mae import MaskedAutoencoder
@@ -101,7 +102,7 @@ def main():
             map_location="cpu",
             strict=False,
         )
-    else:
+    elif args.encoder_ckpt:
         # Build model from encoder weights or from scratch
         print(f"🧩 Loading pretrained encoder: {args.encoder_ckpt}")
         mae = MaskedAutoencoder(
@@ -134,10 +135,35 @@ def main():
             model_cfg=model_cfg,
             training_cfg=train_cfg,
         )
+    else:
+        print("🧪 Baseline: random-initialized VisionTransformer (no MAE)")
+
+        encoder = VisionTransformer(
+            img_size=model_cfg["general"]["image_size"],
+            patch_size=model_cfg["general"]["patch_size"],
+            in_chans=model_cfg["general"]["in_chans"],
+            embed_dim=model_cfg["encoder"]["embed_dim"],
+            depth=model_cfg["encoder"]["depth"],
+            num_heads=model_cfg["encoder"]["num_heads"],
+            num_classes=0,  # no cls head
+        )
+
+        module = MAETrainModule(
+            pretrained_encoder=encoder,
+            model_cfg=model_cfg,
+            training_cfg=train_cfg,
+        )
 
     # Unfreeze encoder if configured
-    if not train_cfg.get("freeze_encoder", True):
-        print("🧠 Unfreezing encoder for fine-tuning...")
+    if train_cfg.get("unfreeze_last_layers", None) is not None:
+        n_layers = int(train_cfg["unfreeze_last_layers"])
+        print(f"🧠 Unfreezing {n_layers} encoder layers...")
+        module.unfreeze_last_layers(n_layers)
+    elif train_cfg.get("freeze_encoder", True):
+        print("🧊 Freezing encoder weights...")
+        module.freeze_encoder()
+    else:
+        print("🧠 Unfreezing encoder weights...")
         module.unfreeze_encoder()
 
     # ------------------------------
