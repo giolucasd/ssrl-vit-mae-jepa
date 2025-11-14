@@ -28,6 +28,11 @@ class MAEPretrainModule(pl.LightningModule):
             encoder_cfg=model_cfg["encoder"],
             decoder_cfg=model_cfg["decoder"],
         )
+
+        self.mask_start = training_cfg.get("mask_ratio_start", 0.5)
+        self.mask_end = training_cfg.get("mask_ratio_end", 0.85)
+        self.ramp_epochs = training_cfg.get("mask_ramp_epochs", 200)
+
         self.lr = float(training_cfg.get("base_learning_rate", 1.5e-4))
         self.weight_decay = float(training_cfg.get("weight_decay", 0.05))
         self.warmup_epochs = int(training_cfg.get("warmup_epochs", 20))
@@ -55,7 +60,9 @@ class MAEPretrainModule(pl.LightningModule):
     def configure_optimizers(self):
         effective_lr = self.lr * self.batch_size / 256
         optimizer = AdamW(
-            self.parameters(), lr=effective_lr, weight_decay=self.weight_decay
+            self.parameters(),
+            lr=effective_lr,
+            weight_decay=self.weight_decay,
         )
 
         def lr_lambda(epoch):
@@ -68,6 +75,13 @@ class MAEPretrainModule(pl.LightningModule):
             "optimizer": optimizer,
             "lr_scheduler": {"scheduler": scheduler, "interval": "epoch", "name": "lr"},
         }
+
+    def on_train_epoch_start(self):
+        """Update mask ratio linearly over epochs."""
+        progress = min(self.current_epoch / max(1, self.ramp_epochs - 1), 1.0)
+        new_mask = self.mask_start + progress * (self.mask_end - self.mask_start)
+        self.model.mask_ratio = new_mask
+        self.log("mask_ratio", new_mask, prog_bar=True)
 
 
 class MAETrainModule(pl.LightningModule):
