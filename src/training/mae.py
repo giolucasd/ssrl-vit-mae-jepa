@@ -116,7 +116,7 @@ class MAETrainModule(pl.LightningModule):
             )
         else:
             print(
-                "⚙️ No pretrained encoder provided; model will be reloaded from checkpoint."
+                "⚙️ No pretrained encoder provided; model can be reloaded from checkpoint."
             )
             self.model = None
 

@@ -3,6 +3,21 @@ from __future__ import annotations
 import torch
 
 
+class SimpleHead(torch.nn.Module):
+    """Simple classification head."""
+
+    def __init__(
+        self,
+        input_dim: int,
+        output_dim: int,
+    ) -> None:
+        super().__init__()
+        self.classification = torch.nn.Linear(input_dim, output_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.classification(x)
+
+
 class MLPHead(torch.nn.Module):
     """Compact MLP head with GELU, LayerNorm, dropout, and light residual connection."""
 
@@ -13,7 +28,6 @@ class MLPHead(torch.nn.Module):
         dropout: float = 0.2,
     ) -> None:
         super().__init__()
-
         self.fc1 = torch.nn.Linear(input_dim, input_dim)
         self.act = torch.nn.GELU()
         self.norm = torch.nn.LayerNorm(input_dim)

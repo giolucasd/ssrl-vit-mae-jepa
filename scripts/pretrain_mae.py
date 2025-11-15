@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import warnings
 from pathlib import Path
 
 import pytorch_lightning as pl
@@ -13,21 +12,10 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from src.data import get_pretrain_dataloaders
 from src.training.mae import MAEPretrainModule
 
-warnings.filterwarnings(
-    "ignore",
-    "Precision 16-mixed is not supported",
-    category=UserWarning,
-)
+from .utils import setup_reproducibility, shut_down_warnings
 
-warnings.filterwarnings(
-    "ignore",
-    "Please use the new API settings to control TF32 behavior",
-    category=UserWarning,
-)
-
-torch.set_float32_matmul_precision("medium")
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
+shut_down_warnings()
+setup_reproducibility(seed=73)
 
 
 def parse_args():
@@ -38,6 +26,12 @@ def parse_args():
         type=str,
         default=None,
         help="Path to checkpoint to resume from",
+    )
+    parser.add_argument(
+        "--output_dir_suffix",
+        type=str,
+        default="mae_pretrain",
+        help="Suffix for the output directory",
     )
     return parser.parse_args()
 
@@ -51,9 +45,6 @@ def main():
     with open(args.config, "r") as f:
         cfg = yaml.safe_load(f)
 
-    seed = cfg.get("seed", 73)
-    pl.seed_everything(seed, workers=True)
-
     pre_cfg = cfg["pretrain"]
     model_cfg = cfg["model"]
     log_cfg = cfg["logging"]
@@ -61,11 +52,7 @@ def main():
     # ------------------------------
     # Output dirs
     # ------------------------------
-    output_dir = (
-        Path(log_cfg["output_dir_base"])
-        / "pretrain"
-        / pre_cfg.get("output_dir_suffix", "default")
-    )
+    output_dir = Path(log_cfg["output_dir_base"]) / "pretrain" / args.output_dir_suffix
     ckpt_dir = output_dir / "checkpoints"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
@@ -132,7 +119,7 @@ def main():
         max_epochs=pre_cfg["total_epochs"],
         logger=tb_logger,
         callbacks=[ckpt_best, ckpt_last, ckpt_periodic, lr_monitor],
-        log_every_n_steps=10,
+        log_every_n_steps=2,
         precision="bf16-mixed" if torch.cuda.is_available() else "32-true",
         gradient_clip_val=1.0,
         gradient_clip_algorithm="norm",

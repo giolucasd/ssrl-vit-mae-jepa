@@ -9,7 +9,7 @@ from lightly.models.modules import MAEDecoderTIMM, MaskedVisionTransformerTIMM
 from timm.models.vision_transformer import VisionTransformer
 from torch import nn
 
-from src.models.heads import MLPHead
+from src.models.heads import SimpleHead
 
 
 class MaskedAutoencoder(nn.Module):
@@ -111,14 +111,12 @@ class MAEClassifier(nn.Module):
         head_cfg = head_cfg or {}
 
         embed_dim = head_cfg.get("embed_dim", pretrained_encoder.embed_dim)
-        dropout = head_cfg.get("dropout", 0.2)
-        pool_type = head_cfg.get("pool", "mean")  # or "cls"
+        pool_type = head_cfg.get("pool", "cls")  # or "mean"
 
         self.pool_type = pool_type
-        self.head = MLPHead(
+        self.head = SimpleHead(
             input_dim=embed_dim,
             output_dim=num_classes,
-            dropout=dropout,
         )
 
     def forward(self, x: torch.Tensor):
