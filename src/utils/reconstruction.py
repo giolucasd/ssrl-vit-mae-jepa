@@ -115,22 +115,11 @@ class MAEReconstructor:
         batch_size = images.shape[0]
 
         with torch.no_grad():
-            # Generate mask indices
-            idx_keep, idx_mask = utils.random_token_mask(
-                size=(batch_size, self.model.sequence_length),
-                mask_ratio=self.mask_ratio,
-                device=self.device,
-            )
 
-            # Forward pass
-            x_encoded = self.model.forward_encoder(images=images, idx_keep=idx_keep)
-            x_pred = self.model.forward_decoder(
-                x_encoded=x_encoded, idx_keep=idx_keep, idx_mask=idx_mask
-            )
+            x_pred, target, idx_keep, idx_mask = self.model.forward(images=images)
 
             # Create masked images for visualization
             masked_images = self._create_masked_images(images, idx_keep, idx_mask)
-
             # Reconstruct full images
             reconstructed = self._reconstruct_full_images(
                 images, x_pred, idx_keep, idx_mask
@@ -143,7 +132,6 @@ class MAEReconstructor:
     ) -> torch.Tensor:
         """Create masked versions of images for visualization."""
         patches = utils.patchify(images=images, patch_size=self.model.patch_size)
-
         # Set masked patches to zero (or gray)
         masked_patches = patches.clone()
         idx_mask_adj = torch.clamp(idx_mask - 1, min=0)
@@ -155,12 +143,10 @@ class MAEReconstructor:
 
         # Apply mask (set to gray value)
         masked_patches = masked_patches * (1 - mask) + mask * 0.5
-
         # Reconstruct images from patches
         return utils.unpatchify(
             patches=masked_patches,
             patch_size=self.model.patch_size,
-            image_size=self.model.image_size,
         )
 
     def _reconstruct_full_images(
@@ -171,20 +157,40 @@ class MAEReconstructor:
         idx_mask: torch.Tensor,
     ) -> torch.Tensor:
         """Reconstruct full images by combining original and predicted patches."""
+
         patches = utils.patchify(images=original, patch_size=self.model.patch_size)
+        B, N, D = patches.shape
+        full_tokens = torch.zeros_like(patches)
+        # The following logic assumes that the CLS token (index 0) is always kept
+        # and needs to be removed from the indices before reconstructing the image,
+        # as the image does not have a CLS token.
 
-        # Replace masked patches with predictions
-        reconstructed_patches = patches.clone()
-        idx_mask_adj = torch.clamp(idx_mask - 1, min=0)
+        # Remove CLS token index (0) from idx_keep
+        mask_not_cls_keep = idx_keep != 0
+        idx_keep_no_cls = idx_keep[mask_not_cls_keep].reshape(B, -1)
+        idx_keep_no_cls = idx_keep_no_cls - 1  # Adjust indices
 
-        for i in range(patches.shape[0]):
-            reconstructed_patches[i, idx_mask_adj[i]] = predictions[i]
+        # Remove CLS token index (0) from idx_mask if it exists
+        mask_not_cls_mask = idx_mask != 0
+        idx_mask_no_cls = idx_mask[mask_not_cls_mask].reshape(B, -1)
+        idx_mask_no_cls = idx_mask_no_cls - 1  # Adjust indices
 
-        return utils.unpatchify(
-            patches=reconstructed_patches,
-            patch_size=self.model.patch_size,
-            image_size=self.model.image_size,
+        # Gather the patches that were kept (visible)
+        kept_patches = patches.gather(
+            1, idx_keep_no_cls.unsqueeze(-1).expand(-1, -1, D)
         )
+        # Insert original visible tokens
+        full_tokens.scatter_(
+            1, idx_keep_no_cls.unsqueeze(-1).expand(-1, -1, D), kept_patches
+        )
+
+        # Insert predicted masked tokens
+        full_tokens.scatter_(
+            1, idx_mask_no_cls.unsqueeze(-1).expand(-1, -1, D), predictions
+        )
+
+        # Step 4: unpatchify back into the image
+        return utils.unpatchify(full_tokens, self.model.patch_size)
 
     def validate_reconstruction(
         self,
@@ -263,9 +269,9 @@ class MAEReconstructor:
 
     def _tensor_to_image(self, tensor: torch.Tensor) -> np.ndarray:
         """Convert tensor to displayable image."""
-        # Denormalize if needed (assuming ImageNet normalization)
-        mean = torch.tensor([0.485, 0.456, 0.406])
-        std = torch.tensor([0.229, 0.224, 0.225])
+        # Denormalize based on the provided transformation
+        mean = torch.tensor([0.5, 0.5, 0.5])
+        std = torch.tensor([0.5, 0.5, 0.5])
 
         if tensor.shape[0] == 3:  # CHW format
             tensor = tensor * std.view(-1, 1, 1) + mean.view(-1, 1, 1)
@@ -303,7 +309,7 @@ def main():
     # Initialize reconstructor
     reconstructor = MAEReconstructor(
         model_path="outputs/mae_t2/checkpoints/best.ckpt",
-        mask_ratio=general_cfg["mask_ratio"],
+        mask_ratio=0.75,
     )
 
     # Load model

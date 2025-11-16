@@ -25,7 +25,7 @@ class MaskedAutoencoder(nn.Module):
 
         self.mask_ratio = general_cfg.get("mask_ratio", 0.75)
         self.image_size = general_cfg.get("image_size", 96)
-        self.patch_size = general_cfg.get("patch_size", 6)
+        self.patch_size = general_cfg.get("patch_size", 8)
         self.in_chans = general_cfg.get("in_chans", 3)
 
         vit = VisionTransformer(
@@ -94,7 +94,7 @@ class MaskedAutoencoder(nn.Module):
         idx_mask_adj = torch.clamp(idx_mask - 1, min=0)
         target = utils.get_at_index(tokens=patches, index=idx_mask_adj)
 
-        return x_pred, target
+        return x_pred, target, idx_keep, idx_mask
 
 
 class MAEClassifier(nn.Module):
