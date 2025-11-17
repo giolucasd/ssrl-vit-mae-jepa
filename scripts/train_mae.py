@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import warnings
 from pathlib import Path
 
 import pytorch_lightning as pl
@@ -9,26 +8,16 @@ import torch
 import yaml
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
+from timm.models.vision_transformer import VisionTransformer
 
 from src.data import get_train_dataloaders
 from src.models.mae import MaskedAutoencoder
 from src.training.mae import MAETrainModule
 
-warnings.filterwarnings(
-    "ignore",
-    "Precision 16-mixed is not supported",
-    category=UserWarning,
-)
+from .utils import setup_reproducibility, shut_down_warnings
 
-warnings.filterwarnings(
-    "ignore",
-    "Please use the new API settings to control TF32 behavior",
-    category=UserWarning,
-)
-
-torch.set_float32_matmul_precision("medium")
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
+shut_down_warnings()
+setup_reproducibility(seed=73)
 
 
 def parse_args():
@@ -48,6 +37,12 @@ def parse_args():
         default=None,
         help="Path to full classifier checkpoint (for fine-tuning continuation)",
     )
+    parser.add_argument(
+        "--output_dir_suffix",
+        type=str,
+        default="mae_finetune",
+        help="Suffix for the output directory",
+    )
     return parser.parse_args()
 
 
@@ -60,9 +55,6 @@ def main():
     with open(args.config, "r") as f:
         cfg = yaml.safe_load(f)
 
-    seed = cfg.get("seed", 73)
-    pl.seed_everything(seed, workers=True)
-
     model_cfg = cfg["model"]
     train_cfg = cfg["train"]
     log_cfg = cfg["logging"]
@@ -70,11 +62,7 @@ def main():
     # ------------------------------
     # Output dirs
     # ------------------------------
-    output_dir = (
-        Path(log_cfg["output_dir_base"])
-        / "train"
-        / train_cfg.get("output_dir_suffix", "default")
-    )
+    output_dir = Path(log_cfg["output_dir_base"]) / "train" / args.output_dir_suffix
     ckpt_dir = output_dir / "checkpoints"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
@@ -101,7 +89,7 @@ def main():
             map_location="cpu",
             strict=False,
         )
-    else:
+    elif args.encoder_ckpt:
         # Build model from encoder weights or from scratch
         print(f"🧩 Loading pretrained encoder: {args.encoder_ckpt}")
         mae = MaskedAutoencoder(
@@ -113,15 +101,43 @@ def main():
         if args.encoder_ckpt:
             ckpt = torch.load(args.encoder_ckpt, map_location="cpu")
             state_dict = ckpt.get("state_dict", ckpt)
-            # Extract encoder weights
+
+            # Possible prefixes where encoder weights may live
+            possible_prefixes = [
+                "model.encoder.",  # LightningModule → self.model.encoder
+                "encoder.",  # plain state_dict from MAE
+                "module.encoder.",  # DDP/DataParallel
+            ]
+
+            # Detect which prefix exists in this checkpoint
+            prefix = None
+            for p in possible_prefixes:
+                if any(k.startswith(p) for k in state_dict.keys()):
+                    prefix = p
+                    break
+
+            if prefix is None:
+                raise ValueError(
+                    "❌ Could not find encoder weights in checkpoint. "
+                    "Expected keys starting with one of: "
+                    + ", ".join(possible_prefixes)
+                )
+
+            print(f"🔎 Detected encoder prefix in checkpoint: '{prefix}'")
+
+            # Extract only encoder weights and strip the prefix
             encoder_state = {
-                k.replace("encoder.", ""): v
+                k[len(prefix) :]: v
                 for k, v in state_dict.items()
-                if "encoder." in k
+                if k.startswith(prefix)
             }
+
+            # Now load them safely into the MAE encoder
             missing, unexpected = mae.encoder.load_state_dict(
-                encoder_state, strict=False
+                encoder_state,
+                strict=False,  # allow decoder/head keys to be ignored
             )
+
             print(
                 f"✅ Loaded encoder weights: {len(encoder_state)} tensors "
                 f"({len(missing)} missing, {len(unexpected)} unexpected)"
@@ -134,10 +150,35 @@ def main():
             model_cfg=model_cfg,
             training_cfg=train_cfg,
         )
+    else:
+        print("🧪 Baseline: random-initialized VisionTransformer (no MAE)")
+
+        encoder = VisionTransformer(
+            img_size=model_cfg["general"]["image_size"],
+            patch_size=model_cfg["general"]["patch_size"],
+            in_chans=model_cfg["general"]["in_chans"],
+            embed_dim=model_cfg["encoder"]["embed_dim"],
+            depth=model_cfg["encoder"]["depth"],
+            num_heads=model_cfg["encoder"]["num_heads"],
+            num_classes=0,  # no cls head
+        )
+
+        module = MAETrainModule(
+            pretrained_encoder=encoder,
+            model_cfg=model_cfg,
+            training_cfg=train_cfg,
+        )
 
     # Unfreeze encoder if configured
-    if not train_cfg.get("freeze_encoder", True):
-        print("🧠 Unfreezing encoder for fine-tuning...")
+    if train_cfg.get("unfreeze_last_layers", None) is not None:
+        n_layers = int(train_cfg["unfreeze_last_layers"])
+        print(f"🧠 Unfreezing {n_layers} encoder layers...")
+        module.unfreeze_last_layers(n_layers)
+    elif train_cfg.get("freeze_encoder", True):
+        print("🧊 Freezing encoder weights...")
+        module.freeze_encoder()
+    else:
+        print("🧠 Unfreezing encoder weights...")
         module.unfreeze_encoder()
 
     # ------------------------------
@@ -173,7 +214,7 @@ def main():
         max_epochs=train_cfg["total_epochs"],
         logger=tb_logger,
         callbacks=[ckpt_best, ckpt_last, lr_monitor],
-        log_every_n_steps=10,
+        log_every_n_steps=2,
         precision="bf16-mixed" if torch.cuda.is_available() else "32-true",
         gradient_clip_val=1.0,
         gradient_clip_algorithm="norm",

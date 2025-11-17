@@ -944,7 +944,6 @@ dependencies = [
     { name = "contourpy" },
     { name = "cycler" },
     { name = "fonttools" },
-    { name = "kiwisolver" },
     { name = "numpy" },
     { name = "packaging" },
     { name = "pillow" },

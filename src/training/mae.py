@@ -116,7 +116,7 @@ class MAETrainModule(pl.LightningModule):
             )
         else:
             print(
-                "⚙️ No pretrained encoder provided; model will be reloaded from checkpoint."
+                "⚙️ No pretrained encoder provided; model can be reloaded from checkpoint."
             )
             self.model = None
 
@@ -186,6 +186,44 @@ class MAETrainModule(pl.LightningModule):
         for param in self.model.parameters():
             param.requires_grad = True
         print("🔥 Encoder unfrozen (all parameters trainable).")
+
+    def unfreeze_last_layers(self, n_layers: int):
+        """
+        Unfreezes only the last `n_layers` Transformer blocks of the ViT encoder.
+        All earlier layers remain frozen.
+        """
+
+        if self.model is None:
+            raise RuntimeError("Model not built yet; cannot unfreeze layers.")
+
+        encoder = self.model.encoder  # timm VisionTransformer
+        blocks = encoder.blocks  # list of Transformer blocks
+        total = len(blocks)
+
+        if n_layers < 0 or n_layers > total:
+            raise ValueError(f"n_layers must be between 0 and {total}, got {n_layers}")
+
+        print(f"🔓 Unfreezing last {n_layers} of {total} encoder layers...")
+
+        # 1) Freeze ALL parameters first
+        for param in encoder.parameters():
+            param.requires_grad = False
+
+        # 2) Unfreeze the last N Transformer blocks
+        for block in blocks[total - n_layers :]:
+            for param in block.parameters():
+                param.requires_grad = True
+
+        # 3) Also unfreeze the final LN (norm) layer
+        if hasattr(encoder, "norm"):
+            for param in encoder.norm.parameters():
+                param.requires_grad = True
+
+        # 4) Head (classifier) is always trainable
+        for param in self.model.head.parameters():
+            param.requires_grad = True
+
+        print("🔥 Selective unfreezing complete.")
 
     def on_load_checkpoint(self, checkpoint):
         """Rebuild classifier if loading from checkpoint without explicit model."""
