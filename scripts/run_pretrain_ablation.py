@@ -9,7 +9,6 @@ import yaml
 
 BASE_CONFIG = Path("configs/mae.yaml")
 
-# Frações a testar
 FRACTIONS = {
     "025": 0.25,
     "050": 0.50,
