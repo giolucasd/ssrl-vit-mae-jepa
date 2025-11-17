@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import warnings
 from pathlib import Path
 
 import pytorch_lightning as pl
@@ -13,21 +12,10 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from src.data import get_test_dataloader
 from src.training.mae import MAETrainModule
 
-warnings.filterwarnings(
-    "ignore",
-    "Precision 16-mixed is not supported",
-    category=UserWarning,
-)
+from .utils import setup_reproducibility, shut_down_warnings
 
-warnings.filterwarnings(
-    "ignore",
-    "Please use the new API settings to control TF32 behavior",
-    category=UserWarning,
-)
-
-torch.set_float32_matmul_precision("medium")
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
+shut_down_warnings()
+setup_reproducibility(seed=73)
 
 
 def parse_args():
