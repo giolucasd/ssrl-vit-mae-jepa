@@ -11,6 +11,8 @@ from timm.models.vision_transformer import VisionTransformer
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
+from ..utils import setup_reproducibility, shut_down_warnings
+
 try:
     import umap
 
@@ -18,6 +20,10 @@ try:
 except ImportError:
     HAS_UMAP = False
     print("⚠️ UMAP not installed. Install with: pip install umap-learn")
+
+
+shut_down_warnings()
+setup_reproducibility(seed=73)
 
 
 # --------------------------------------------------

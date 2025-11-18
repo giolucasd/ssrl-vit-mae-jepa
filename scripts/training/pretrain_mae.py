@@ -12,7 +12,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from src.data import get_pretrain_dataloaders
 from src.training.mae import MAEPretrainModule
 
-from .utils import setup_reproducibility, shut_down_warnings
+from ..utils import setup_reproducibility, shut_down_warnings
 
 shut_down_warnings()
 setup_reproducibility(seed=73)

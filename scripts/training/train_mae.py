@@ -14,7 +14,7 @@ from src.data import get_train_dataloaders
 from src.models.mae import MaskedAutoencoder
 from src.training.mae import MAETrainModule
 
-from .utils import setup_reproducibility, shut_down_warnings
+from ..utils import setup_reproducibility, shut_down_warnings
 
 shut_down_warnings()
 setup_reproducibility(seed=73)

@@ -20,6 +20,11 @@ from torch.utils.data import DataLoader
 from src.data import get_train_dataloaders
 from src.models.mae import MaskedAutoencoder
 
+from ..utils import setup_reproducibility, shut_down_warnings
+
+shut_down_warnings()
+setup_reproducibility(seed=73)
+
 
 def parse_args():
     """Parses command-line arguments."""
