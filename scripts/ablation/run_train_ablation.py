@@ -132,7 +132,7 @@ def main() -> None:
                 cmd: list[str] = [
                     "python",
                     "-m",
-                    "scripts.train_mae",
+                    "scripts.training.train_mae",
                     "--config",
                     str(tmp_cfg_path),
                     ckpt_arg,
