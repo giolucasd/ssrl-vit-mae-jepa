@@ -41,9 +41,6 @@ def main():
     with open(args.config, "r") as f:
         cfg = yaml.safe_load(f)
 
-    seed = cfg.get("seed", 73)
-    pl.seed_everything(seed, workers=True)
-
     test_cfg = cfg["test"]
     log_cfg = cfg["logging"]
     train_cfg = cfg["train"]

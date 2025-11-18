@@ -150,6 +150,17 @@ class MAETrainModule(pl.LightningModule):
         self.log("val_acc", acc, prog_bar=True)
         return loss
 
+    def test_step(self, batch, batch_idx):
+        imgs, labels = batch
+        logits = self(imgs)
+        loss = F.cross_entropy(logits, labels)
+        acc = (logits.argmax(dim=1) == labels).float().mean()
+
+        self.log("test_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("test_acc", acc, on_step=False, on_epoch=True, prog_bar=True)
+
+        return loss
+
     def configure_optimizers(self):
         optimizer = AdamW(
             filter(lambda p: p.requires_grad, self.model.parameters()),
