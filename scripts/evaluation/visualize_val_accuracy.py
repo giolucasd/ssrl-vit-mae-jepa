@@ -37,11 +37,12 @@ def extract_accuracy_from_checkpoint(ckpt_path):
 def parse_filename(filename):
     """Parse filename to extract pretrain percentage, labels per class, and unfreeze layer."""
     # Extract numbers from filename like mae_100_400_8.ckpt
-    match = re.match(r"mae_(\d+)_(\d+)_(\d+)\.ckpt", filename)
+    match = re.match(r"mae_(\d+)_(\d+)_(\w+)\.ckpt", filename)
+
     if match:
         pretrain_pct = int(match.group(1))
         labels_per_class = int(match.group(2))
-        unfreeze_layer = int(match.group(3))
+        unfreeze_layer = match.group(3)
         return pretrain_pct, labels_per_class, unfreeze_layer
     return None, None, None
 
@@ -140,7 +141,7 @@ def create_accuracy_plot():
     plt.tight_layout()
 
     # Save the plot
-    output_path = "assets/visualization/val_accuracy_comparison_plot.png"
+    output_path = "assets/visualizations/val_accuracy_comparison_plot.png"
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
     print(f"\nPlot saved to: {output_path}")
 
