@@ -4,15 +4,9 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-import pytorch_lightning as pl
-import torch
 import yaml
-from pytorch_lightning.loggers import TensorBoardLogger
 
-from src.data import get_test_dataloader
-from src.training.mae import MAETrainModule
-
-from ..utils import setup_reproducibility, shut_down_warnings
+from ..utils import evaluate_checkpoint, setup_reproducibility, shut_down_warnings
 
 shut_down_warnings()
 setup_reproducibility(seed=73)
@@ -41,7 +35,6 @@ def main():
     with open(args.config, "r") as f:
         cfg = yaml.safe_load(f)
 
-    test_cfg = cfg["test"]
     log_cfg = cfg["logging"]
     train_cfg = cfg["train"]
 
@@ -59,53 +52,13 @@ def main():
         args.checkpoint = str(default_ckpt)
         print(f"🧩 Using default checkpoint: {args.checkpoint}")
 
-    # ------------------------------
-    # Data
-    # ------------------------------
-    test_loader = get_test_dataloader(cfg)
-
-    # ------------------------------
-    # Load model
-    # ------------------------------
-    print(f"🔁 Loading model from checkpoint: {args.checkpoint}")
-    model = MAETrainModule.load_from_checkpoint(args.checkpoint, strict=False)
-
-    # ------------------------------
-    # Logging
-    # ------------------------------
-    output_dir = (
-        Path(log_cfg["output_dir_base"])
-        / "test"
-        / test_cfg.get("output_dir_suffix", "default")
-    )
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    tb_logger = TensorBoardLogger(save_dir=str(output_dir / "logs"), name="tb")
-
-    # ------------------------------
-    # Trainer
-    # ------------------------------
-    trainer = pl.Trainer(
-        accelerator="auto",
-        devices=1,
-        logger=tb_logger,
-        precision="bf16-mixed" if torch.cuda.is_available() else "32-true",
-        gradient_clip_val=1.0,
-        gradient_clip_algorithm="norm",
-    )
-
-    # ------------------------------
-    # Test
-    # ------------------------------
-    print("\n🚀 Starting evaluation...")
-    results = trainer.test(model, test_loader, ckpt_path=None)
+    acc = evaluate_checkpoint(cfg, args.checkpoint)
 
     # ------------------------------
     # Output
     # ------------------------------
     print("\n✅ Evaluation complete")
-    print(f"📈 Results: {results[0]}")
-    print(f"🧾 Logs saved to: {tb_logger.log_dir}")
+    print(f"📈 Accuracy: {acc}")
 
 
 if __name__ == "__main__":
