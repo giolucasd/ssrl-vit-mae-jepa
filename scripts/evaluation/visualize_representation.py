@@ -270,11 +270,15 @@ def main():
     plot_embedding(Z, labels, str(out_path), title_info)
     # Generate 10 class-vs-all plots
     for cls_id in np.unique(labels):
-        out_cls = (
-            f"assets/representation_{ckpt_name}_{args.method}_"
-            f"{args.pool}_{args.normalize}_class{cls_id}.png"
+        out_path = (
+            save_dir
+            / f"representation_{ckpt_name}_{args.method}_{args.pool}_{args.normalize}.png"
         )
-        plot_class_vs_all(Z, labels, cls_id, out_cls)
+        out_cls = (
+            save_dir
+            / f"representation_{ckpt_name}_{args.method}_{args.pool}_{args.normalize}_class{cls_id}.png"
+        )
+        plot_class_vs_all(Z, labels, cls_id, str(out_cls))
 
 
 if __name__ == "__main__":
