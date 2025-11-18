@@ -13,11 +13,18 @@ The experiments aim to understand how increasing exposure to unlabeled data impr
 - [1. Prerequisites](#1-prerequisites)
 - [2. Installing `ssrl-vit-mae-jepa`](#2-installing-ssrl-vit-mae-jepa)
 - [3. Using `ssrl-vit-mae-jepa`](#3-using-ssrl-vit-mae-jepa)
-  - [🧩 `scripts/data.py`](#-scriptsdatapy)
-  - [🧠 `scripts/pretrain_mae.py`](#-scriptspretrain_maepy)
-  - [🧮 `scripts/train_mae.py`](#-scriptstrain_maepy)
-  - [🧪 `scripts.linear_probe.py`](#-scriptslinear_probepy)
-  - [📊 `scripts.evaluate_classifier.py`](#-scriptsevaluate_classifierpy)
+  - [3.1. 🗂 Directory Structure (Scripts)](#31--directory-structure-scripts)
+  - [3.2. ⚙️ Configuration (configs/mae.yaml)](#32-️-configuration-configsmaeyaml)
+  - [3.3. 🧠 MAE Pre-Training (scripts.training.pretrain\_mae)](#33--mae-pre-training-scriptstrainingpretrain_mae)
+  - [3.4. 🧮 Supervised Training / Fine-Tuning (scripts.training.train\_mae)](#34--supervised-training--fine-tuning-scriptstrainingtrain_mae)
+    - [3.4.1. 🧊 Frozen Encoder Training (Linear-style probe)](#341--frozen-encoder-training-linear-style-probe)
+    - [3.4.2. 🔥 Fine-Tuning the Encoder](#342--fine-tuning-the-encoder)
+  - [3.5. 🧪 Evaluation (scripts.evaluation.evaluate\_classifier)](#35--evaluation-scriptsevaluationevaluate_classifier)
+  - [3.6. 🔍 Representation Visualization (scripts.evaluation.visualize\_representation)](#36--representation-visualization-scriptsevaluationvisualize_representation)
+  - [3.7. 🔬 Full Ablation Studies](#37--full-ablation-studies)
+    - [3.7.1. 🧩 Pre-training Ablation](#371--pre-training-ablation)
+    - [3.7.2. 🧠 Downstream Training Ablation](#372--downstream-training-ablation)
+    - [3.7.3. Summary](#373-summary)
 - [4. Contributing](#4-contributing)
 - [5. Contributors](#5-contributors)
 - [6. Contact](#6-contact)
@@ -55,8 +62,8 @@ uv sync --all-extras
 To check if the installation was succesful and GPU access is correct:
 
 ```bash
-uv run python test/test_cuda_torch.py
-uv run python test/test_cuda_benchmark.py
+uv run python tests/test_cuda_torch.py
+uv run python tests/test_cuda_benchmark.py
 ```
 
 After installing the dependencies, activate the virtual environment created by **uv**:
@@ -69,125 +76,230 @@ source .venv/bin/activate
 
 ## 3. Using `ssrl-vit-mae-jepa`
 
-The project provides a set of modular training scripts that implement all stages of the self-supervised learning pipeline — from data preparation to evaluation.
+The project provides a modular and fully script-driven pipeline for **self-supervised pre-training**, **downstream fine-tuning**, **evaluation**, and **ablation studies**.
 
----
-
-### 🧩 `scripts/data.py`
-Utility for downloading and verifying the **STL-10** dataset (labeled + unlabeled).
-
+All scripts include built-in help:
 ```bash
-python -m scripts.data
+python -m scripts.training.pretrain_mae --help
+python -m scripts.training.train_mae --help
+python -m scripts.evaluation.evaluate_classifier --help
+python -m scripts.evaluation.visualize_representation --help
 ```
 
-By default, the dataset is stored under `data/`.
-
----
-
-### 🧠 `scripts/pretrain_mae.py`
-Runs **Masked Autoencoder (MAE)** pre-training on the unlabeled subset of STL-10.
+### 3.1. 🗂 Directory Structure (Scripts)
 
 ```bash
-python -m scripts.pretrain_mae \
-  --data_fraction 0.25 \
-  --total_epochs 50 \
-  --warmup_epochs 5 \
-  --batch_size 512 \
-  --max_device_batch_size 512 \
-  --model_path vit-mae-025.pt \
-  --output_dir outputs/pretrain/mae_025
+scripts/
+ ├─ training/
+ │   ├─ pretrain_mae.py
+ │   └─ train_mae.py
+ │
+ ├─ evaluation/
+ │   ├─ evaluate_classifier.py
+ │   ├─ visualize_representation.py
+ │   └─ visualize_reconstruction.py
+ │
+ ├─ ablation/
+ │   ├─ run_pretrain_ablation.py
+ │   └─ run_train_ablation.py
+ │
+ ├─ data.py
+ └─ utils.py
 ```
 
-**Key arguments:**
-- `--data_fraction`: fraction of unlabeled STL-10 data used for pre-training (`0.25`, `0.5`, `1.0`, etc.).
-- `--total_epochs`: total number of training epochs.
-- `--warmup_epochs`: linear warmup duration before applying the cosine scheduler.
-- `--batch_size`: global batch size.
-- `--output_dir`: directory to save checkpoints and logs.
+### 3.2. ⚙️ Configuration (configs/mae.yaml)
 
----
+All training scripts use the same unified YAML configuration:
 
-### 🧮 `scripts/train_mae.py`
-Fine-tunes the pretrained encoder on labeled STL-10 samples (either frozen or unfrozen).
+```yaml
+model:
+  general:
+    image_size: 96
+    patch_size: 8
+    in_chans: 3
+
+  encoder:
+    embed_dim: 144
+    depth: 4
+    num_heads: 6
+
+  decoder:
+    decoder_embed_dim: 192
+    decoder_depth: 2
+    decoder_num_heads: 6
+
+  head:
+    embed_dim: 144
+    pool: cls
+
+pretrain:
+  mask_ratio_start: 0.75
+  mask_ratio_end: 0.75
+  mask_ramp_epochs: 5
+  total_epochs: 800
+  warmup_epochs: 20
+  batch_size: 2000
+  base_learning_rate: 1.5e-4
+  weight_decay: 0.05
+  data_fraction: 1.00
+  val_split: 0.06
+  num_workers: 4
+
+train:
+  samples_per_class: 400
+  total_epochs: 100
+  warmup_epochs: 10
+  batch_size: 2000
+  learning_rate: 3e-4
+  weight_decay: 0.05
+  freeze_encoder: true
+  num_workers: 4
+
+test:
+  batch_size: 2000
+  num_workers: 4
+
+logging:
+  output_dir_base: outputs
+  model_path: vit-mae.pt
+```
+
+### 3.3. 🧠 MAE Pre-Training (scripts.training.pretrain_mae)
+
+Runs Masked Autoencoder pre-training on unlabeled STL-10.
 
 ```bash
-python -m scripts.train_mae \
-  --encoder_ckpt outputs/pretrain/mae_025/checkpoints/last.ckpt \
-  --freeze_encoder True \
-  --samples_per_class 400 \
-  --epochs 100 \
-  --lr 3e-4 \
-  --output_dir outputs/train/mae_400
+python -m scripts.training.pretrain_mae \
+  --config configs/mae.yaml \
+  --output_dir_suffix mae_100
 ```
 
-To **fine-tune the entire encoder** (unfrozen):
-```bash
-python -m scripts.train_mae \
-  --classifier_ckpt outputs/train/mae_400/checkpoints/best-valacc-epoch=078-val_acc=0.3080.ckpt \
-  --freeze_encoder False \
-  --epochs 50 \
-  --lr 1e-5 \
-  --output_dir outputs/train/mae_400_finetune
-```
-
-**Key arguments:**
-- `--encoder_ckpt`: path to pretrained MAE encoder checkpoint.
-- `--classifier_ckpt`: path to previously trained classifier (optional, for fine-tuning).
-- `--freeze_encoder`: whether to freeze encoder weights.
-- `--samples_per_class`: number of labeled examples per class (10–400).
-- `--epochs`: total number of fine-tuning epochs.
-
----
-
-### 🧪 `scripts.linear_probe.py`
-Evaluates **frozen encoder representations** by training a single linear classifier on top of them (linear probe).
+Outputs are stored in:
 
 ```bash
-python -m scripts.linear_probe \
-  --encoder_ckpt outputs/pretrain/mae_100/checkpoints/mae-epoch=394-train_loss=0.062.ckpt \
-  --batch_size 1024 \
-  --epochs 50 \
-  --lr 1e-3 \
-  --output_dir outputs/linear_probe
+outputs/pretrain/<suffix>/
+    checkpoints/
+        best.ckpt
+        last.ckpt
+    logs/
+    vit-mae.pt
 ```
 
-**Output:** linear probe accuracy (top-1) on STL-10 test set.
+Use --output_dir_suffix to specify runs like mae_025, mae_050, mae_075, mae_100. Note that `scripts/ablation/run_pretrain_ablation.py` does that automatically for all predefined ablation percentages.
 
----
-
-### 📊 `scripts.evaluate_classifier.py`
-Evaluates a fine-tuned classifier checkpoint on the STL-10 **test set**.
+### 3.4. 🧮 Supervised Training / Fine-Tuning (scripts.training.train_mae)
+#### 3.4.1. 🧊 Frozen Encoder Training (Linear-style probe)
 
 ```bash
-python -m scripts.evaluate_classifier \
-  --ckpt_path outputs/train/mae_400_finetune/checkpoints/best-valacc-epoch=020-val_acc=0.3110.ckpt \
-  --batch_size 256 \
-  --num_workers 8
+python -m scripts.training.train_mae \
+  --config configs/mae.yaml \
+  --encoder_ckpt outputs/pretrain/mae_100/checkpoints/best.ckpt \
+  --output_dir_suffix mae_100_400
 ```
 
-**Output:**
-- Accuracy, precision, recall, and F1-score metrics on the test set.
+Trains only the classification head while keeping encoder frozen.
 
----
+#### 3.4.2. 🔥 Fine-Tuning the Encoder
 
-All results — including model checkpoints, logs, and TensorBoard summaries — are saved in the `outputs/` directory.
-
----
-
-Train a model using MAE or JEPA pre-training followed by fine-tuning:
+Continue from a frozen head checkpoint:
 
 ```bash
-uv run python scripts/train.py --method mae --pretrain 0.5 --finetune 100
+python -m scripts.training.train_mae \
+  --config configs/mae.yaml \
+  --classifier_ckpt outputs/train/mae_100_400/checkpoints/best.ckpt \
+  --output_dir_suffix mae_100_400_finetuned
 ```
 
-Example options:
+If freeze_encoder: false is set in the config, the full encoder is unfrozen (or partially unfrozen when using unfreeze_last_layers).
 
-* `--method {mae,jepa}` — self-supervised paradigm.
-* `--pretrain {0.25,0.5,0.75,1.0}` — fraction of unlabeled data used for pre-training.
-* `--finetune {10,25,50,100,200,300,400}` — number of labeled examples per class for fine-tuning.
+### 3.5. 🧪 Evaluation (scripts.evaluation.evaluate_classifier)
 
-Results (checkpoints, logs, and metrics) are saved under the `outputs/` directory.
-A reproducible **Jupyter notebook** for visualizing results and attention heatmaps is included in `notebooks/analysis.ipynb`.
+Evaluate any trained classifier checkpoint on the STL-10 test split:
+
+```bash
+python -m scripts.evaluation.evaluate_classifier \
+  --config configs/mae.yaml \
+  --checkpoint outputs/train/mae_100_400_finetuned/checkpoints/best.ckpt
+```
+
+Outputs:
+- test accuracy
+- logs under outputs/test/\<suffix\>/logs/
+- reusable evaluation function within script
+
+### 3.6. 🔍 Representation Visualization (scripts.evaluation.visualize_representation)
+
+Generates t-SNE or UMAP visualizations of encoder features.
+
+```bash
+python -m scripts.evaluation.visualize_representation \
+  --config configs/mae.yaml \
+  --encoder_ckpt outputs/pretrain/mae_100/vit-mae.pt \
+  --method umap \
+  --pool cls \
+  --normalize none
+```
+
+Saves images to `assets/visualizations/representation_*.png`.
+
+Supports:
+- pooling: cls, mean
+- normalization: none, l2, channel
+- UMAP (recommended) or t-SNE
+
+### 3.7. 🔬 Full Ablation Studies
+
+Two scripts automatically run the entire set of experiments.
+
+#### 3.7.1. 🧩 Pre-training Ablation
+
+Trains 4 models with different fractions of unlabeled data:
+
+```bash
+python -m scripts.ablation.run_pretrain_ablation
+```
+
+Runs sequential pre-training for:
+- 25%
+- 50%
+- 75%
+- 100%
+
+
+#### 3.7.2. 🧠 Downstream Training Ablation
+
+Runs 112 experiments covering:
+- 4 unlabeled data fractions ×
+- 7 label budgets (10–400/class) ×
+- 4 training modes (frozen, +1 layer, +2 layers, full fine-tune)
+
+```bash
+python -m scripts.ablation.run_train_ablation
+```
+
+This script:
+- Automatically loads correct checkpoints at each stage
+- Runs frozen training → unfreeze-1 → unfreeze-2 → full FT
+- Stores results in:
+
+```bash
+outputs/train/<frac>_<labels>_frozen/
+outputs/train/<frac>_<labels>_unfreeze1/
+outputs/train/<frac>_<labels>_unfreeze2/
+outputs/train/<frac>_<labels>_full/
+```
+
+#### 3.7.3. Summary
+
+The workflow is:
+
+1. Run pretraining ablation
+2. Run downstream ablation
+3. Optional:
+   1. Evaluate final classifiers
+   2. Visualize learned representations
+
+All results are reproducible, saved within outputs/, and linked to their original configuration snapshot.
 
 ---
 

@@ -340,7 +340,7 @@ def main():
     config = load_config(args.config)
 
     # --- Data Loading ---
-    _, val_loader = get_train_dataloaders(config)
+    train_loader, _ = get_train_dataloaders(config)
 
     general_cfg = config["model"]["general"]
 
@@ -358,10 +358,10 @@ def main():
     reconstructor.load_model(general_cfg, encoder_cfg, decoder_cfg)
 
     # Validate (assuming you have train_dataloader and val_dataloader)
-    save_dir = Path("assets")
+    save_dir = Path("assets") / "visualizations"
     save_dir.mkdir(parents=True, exist_ok=True)
     reconstructor.validate_reconstruction(
-        dataloader=val_loader,
+        dataloader=train_loader,
         num_samples=8,
         save_path=save_dir / args.output_path_suffix,
     )

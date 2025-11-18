@@ -258,19 +258,27 @@ def main():
     print("📉 Projecting to 2D…")
     Z = project(feats, method=args.method)
 
-    Path("assets").mkdir(exist_ok=True)
+    save_dir = Path("assets") / "visualizations"
+    save_dir.mkdir(exist_ok=True)
     ckpt_name = Path(args.encoder_ckpt).stem
 
-    out_path = f"assets/representation_{ckpt_name}_{args.method}_{args.pool}_{args.normalize}.png"
+    out_path = (
+        save_dir
+        / f"representation_{ckpt_name}_{args.method}_{args.pool}_{args.normalize}.png"
+    )
     title_info = f"{args.method}, pool={args.pool}, norm={args.normalize}"
-    plot_embedding(Z, labels, out_path, title_info)
+    plot_embedding(Z, labels, str(out_path), title_info)
     # Generate 10 class-vs-all plots
     for cls_id in np.unique(labels):
-        out_cls = (
-            f"assets/representation_{ckpt_name}_{args.method}_"
-            f"{args.pool}_{args.normalize}_class{cls_id}.png"
+        out_path = (
+            save_dir
+            / f"representation_{ckpt_name}_{args.method}_{args.pool}_{args.normalize}.png"
         )
-        plot_class_vs_all(Z, labels, cls_id, out_cls)
+        out_cls = (
+            save_dir
+            / f"representation_{ckpt_name}_{args.method}_{args.pool}_{args.normalize}_class{cls_id}.png"
+        )
+        plot_class_vs_all(Z, labels, cls_id, str(out_cls))
 
 
 if __name__ == "__main__":
