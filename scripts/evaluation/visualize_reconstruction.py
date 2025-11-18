@@ -358,7 +358,7 @@ def main():
     reconstructor.load_model(general_cfg, encoder_cfg, decoder_cfg)
 
     # Validate (assuming you have train_dataloader and val_dataloader)
-    save_dir = Path("assets")
+    save_dir = Path("assets") / "visualizations"
     save_dir.mkdir(parents=True, exist_ok=True)
     reconstructor.validate_reconstruction(
         dataloader=val_loader,
