@@ -18,6 +18,7 @@ dependencies = [
     "timm>=1.0.21",
     "torch>=2.9.0",
     "torchvision>=0.24.0",
+    "umap-learn>=0.5.9.post2",
 ]
 
 [dependency-groups]
