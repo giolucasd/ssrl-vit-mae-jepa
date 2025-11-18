@@ -55,8 +55,8 @@ uv sync --all-extras
 To check if the installation was succesful and GPU access is correct:
 
 ```bash
-uv run python test/test_cuda_torch.py
-uv run python test/test_cuda_benchmark.py
+uv run python tests/test_cuda_torch.py
+uv run python tests/test_cuda_benchmark.py
 ```
 
 After installing the dependencies, activate the virtual environment created by **uv**:
