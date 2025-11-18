@@ -5,7 +5,10 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import yaml
 
-from ..utils import evaluate_checkpoint
+from ..utils import evaluate_checkpoint, setup_reproducibility, shut_down_warnings
+
+shut_down_warnings()
+setup_reproducibility(seed=73)
 
 
 def parse_args():
@@ -13,12 +16,6 @@ def parse_args():
         description="Evaluate MAE classifier on STL-10 test set"
     )
     parser.add_argument("--config", type=str, default="configs/mae.yaml")
-    parser.add_argument(
-        "--checkpoint",
-        type=str,
-        default=None,
-        help="Path to checkpoint (.ckpt) — defaults to best.ckpt in training output dir",
-    )
     return parser.parse_args()
 
 
@@ -35,7 +32,7 @@ def parse_filename(filename):
 
 def create_accuracy_plot(cfg):
     """Create a plot showing accuracy vs labels per class for different pretrain percentages."""
-    weights_dir = Path("assets/weights")
+    weights_dir = Path("assets") / "weights"
 
     if not weights_dir.exists():
         print(f"Error: {weights_dir} does not exist")
@@ -67,8 +64,8 @@ def create_accuracy_plot(cfg):
     plt.figure(figsize=(10, 6))
 
     # Define colors and markers for different pretrain percentages
-    colors = ["blue", "red", "green", "orange"]
-    markers = ["o", "s", "^", "D"]
+    colors = ["blue", "red", "green", "orange", "black"]
+    markers = ["o", "s", "^", "D", "v"]
 
     pretrain_percentages = sorted(results.keys())
 

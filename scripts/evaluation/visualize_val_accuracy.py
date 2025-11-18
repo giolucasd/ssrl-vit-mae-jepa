@@ -5,6 +5,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
+from ..utils import setup_reproducibility, shut_down_warnings
+
+shut_down_warnings()
+setup_reproducibility(seed=73)
+
 
 def extract_accuracy_from_checkpoint(ckpt_path):
     """Extract validation accuracy from a checkpoint file."""
@@ -57,7 +62,7 @@ def get_all_checkpoint_files(weights_dir):
 
 def create_accuracy_plot():
     """Create a plot showing accuracy vs labels per class for different unfreeze layers, averaging across pretrain percentages."""
-    weights_dir = Path("outputs/train/")
+    weights_dir = Path("outputs/train")
 
     if not weights_dir.exists():
         print(f"Error: {weights_dir} does not exist")
