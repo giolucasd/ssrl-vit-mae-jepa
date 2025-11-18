@@ -46,9 +46,17 @@ def parse_filename(filename):
     return None, None, None
 
 
+def get_all_checkpoint_files(weights_dir):
+    """Get all checkpoint files from weights_dir and its subdirectories."""
+    ckpt_files = []
+    for ckpt_file in weights_dir.rglob("*.ckpt"):
+        ckpt_files.append(ckpt_file)
+    return ckpt_files
+
+
 def create_accuracy_plot():
     """Create a plot showing accuracy vs labels per class for different unfreeze layers, averaging across pretrain percentages."""
-    weights_dir = Path("outputs/train/checkpoints")
+    weights_dir = Path("outputs/train/")
 
     if not weights_dir.exists():
         print(f"Error: {weights_dir} does not exist")
@@ -58,7 +66,7 @@ def create_accuracy_plot():
     results = {}
 
     # Scan all checkpoint files
-    for ckpt_file in weights_dir.glob("mae_*.ckpt"):
+    for ckpt_file in get_all_checkpoint_files(weights_dir):
         pretrain_pct, labels_per_class, unfreeze_layer = parse_filename(ckpt_file.name)
 
         if all(x is not None for x in [pretrain_pct, labels_per_class, unfreeze_layer]):
@@ -69,10 +77,6 @@ def create_accuracy_plot():
                 if config_key not in results:
                     results[config_key] = []
                 results[config_key].append(accuracy)
-                print(
-                    f"Found: {pretrain_pct}% pretrain, {labels_per_class} labels/class, "
-                    f"unfreeze layer {unfreeze_layer} -> {accuracy:.3f} accuracy"
-                )
 
     if not results:
         print("No valid checkpoint files found or no accuracy data extracted")
@@ -82,13 +86,7 @@ def create_accuracy_plot():
     mean_acc_results = {}
     for config_key, accuracies in results.items():
         mean_accuracy = np.mean(accuracies)
-        if config_key not in mean_acc_results:
-            mean_acc_results[mean_accuracy] = {}
         mean_acc_results[config_key] = mean_accuracy
-        print(
-            f"Mean accuracy for {labels_per_class} labels/class, unfreeze layer {unfreeze_layer}: "
-            f"{mean_accuracy:.3f} (from {len(accuracies)} experiments)"
-        )
 
     # Create the plot
     plt.figure(figsize=(12, 8))
