@@ -172,18 +172,30 @@ def project(features, method="umap"):
 # --------------------------------------------------
 # Plot
 # --------------------------------------------------
-def plot_embedding(Z, y, out_path, title_extra):
+def plot_embedding(Z, y, out_path, title_extra, class_names):
     plt.figure(figsize=(8, 8))
-    scatter = plt.scatter(Z[:, 0], Z[:, 1], c=y, s=12, cmap="tab10")
-    plt.colorbar(scatter, ticks=sorted(np.unique(y)))
+
+    # unique sorted classes
+    classes = np.unique(y)
+
+    for cls in classes:
+        mask = y == cls
+        plt.scatter(
+            Z[mask, 0],
+            Z[mask, 1],
+            s=12,
+            label=class_names[cls],
+        )
+
     plt.title(f"2D feature projection ({title_extra})")
+    plt.legend(title="Classes", bbox_to_anchor=(1.05, 1), loc="upper left")
     plt.tight_layout()
-    plt.savefig(out_path, dpi=300)
+    plt.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close()
     print(f"📁 Saved figure to {out_path}")
 
 
-def plot_class_vs_all(Z, y, class_id, out_path):
+def plot_class_vs_all(Z, y, class_id, class_name, out_path):
     plt.figure(figsize=(6, 6))
 
     # Background classes (gray)
@@ -193,10 +205,14 @@ def plot_class_vs_all(Z, y, class_id, out_path):
     # Highlight class_id
     mask_cls = y == class_id
     plt.scatter(
-        Z[mask_cls, 0], Z[mask_cls, 1], c="tab:red", s=12, label=f"class {class_id}"
+        Z[mask_cls, 0],
+        Z[mask_cls, 1],
+        c="tab:red",
+        s=12,
+        label=class_name,
     )
 
-    plt.title(f"Class {class_id} vs all")
+    plt.title(f"Class {class_name} vs all")
     plt.legend()
     plt.tight_layout()
     plt.savefig(out_path, dpi=300)
@@ -244,6 +260,7 @@ def main():
     dataloader = DataLoader(
         dataset, batch_size=args.batch_size, shuffle=True, num_workers=4
     )
+    class_names = dataset.classes
 
     print("📥 Extracting features…")
     feats, labels = extract_features(
@@ -267,9 +284,10 @@ def main():
         / f"representation_{ckpt_name}_{args.method}_{args.pool}_{args.normalize}.png"
     )
     title_info = f"{args.method}, pool={args.pool}, norm={args.normalize}"
-    plot_embedding(Z, labels, str(out_path), title_info)
+    plot_embedding(Z, labels, str(out_path), title_info, class_names)
     # Generate 10 class-vs-all plots
     for cls_id in np.unique(labels):
+        class_name = class_names[cls_id]
         out_path = (
             save_dir
             / f"representation_{ckpt_name}_{args.method}_{args.pool}_{args.normalize}.png"
@@ -278,7 +296,7 @@ def main():
             save_dir
             / f"representation_{ckpt_name}_{args.method}_{args.pool}_{args.normalize}_class{cls_id}.png"
         )
-        plot_class_vs_all(Z, labels, cls_id, str(out_cls))
+        plot_class_vs_all(Z, labels, cls_id, class_name, str(out_cls))
 
 
 if __name__ == "__main__":
