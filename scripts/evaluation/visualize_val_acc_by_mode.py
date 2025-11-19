@@ -134,9 +134,9 @@ def create_accuracy_plot():
         )
 
     plt.xlabel("Labels per Class", fontsize=12)
-    plt.ylabel("Validation Accuracy", fontsize=12)
+    plt.ylabel("Average Validation Accuracy", fontsize=12)
     plt.title(
-        "Validation Accuracy vs Labels per Class\n(Averaged Across Pretraining Fractions)",
+        "Average Validation Accuracy vs Labels per Class\n(Averaged Across Pretraining Fractions)",
         fontsize=14,
     )
     plt.grid(True, alpha=0.3)
