@@ -22,7 +22,7 @@ def parse_args():
 def parse_filename(filename):
     """Parse filename to extract pretrain percentage and labels per class."""
     # Extract numbers from filename like mae_100_400.ckpt
-    match = re.match(r"mae_(\d+)_(\d+)\.ckpt", filename)
+    match = re.match(r"mae_(\d+)_(\d+)\.pt", filename)
     if match:
         pretrain_pct = int(match.group(1))
         labels_per_class = int(match.group(2))
@@ -42,7 +42,7 @@ def create_accuracy_plot(cfg):
     results = {}
 
     # Scan all checkpoint files
-    for ckpt_file in weights_dir.glob("mae_*.ckpt"):
+    for ckpt_file in weights_dir.glob("mae_*.pt"):
         pretrain_pct, labels_per_class = parse_filename(ckpt_file.name)
 
         if pretrain_pct is not None and labels_per_class is not None:
@@ -84,7 +84,7 @@ def create_accuracy_plot(cfg):
         )
 
     plt.xlabel("Labels per Class", fontsize=12)
-    plt.ylabel("Accuracy", fontsize=12)
+    plt.ylabel("Test Accuracy", fontsize=12)
     plt.title(
         "Model Accuracy vs Labels per Class\nfor Different Pretraining Data Amounts",
         fontsize=14,

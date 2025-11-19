@@ -35,7 +35,7 @@ def shut_down_warnings() -> None:
     )
 
 
-def evaluate_checkpoint(cfg, checkpoint_path):
+def evaluate_checkpoint(cfg: dict, checkpoint_path: str | Path):
     """
     Reusable evaluation helper.
     Loads model, loads test dataloader, runs evaluation, returns test accuracy.
@@ -52,7 +52,26 @@ def evaluate_checkpoint(cfg, checkpoint_path):
     # Load model
     # ------------------------------
     print(f"🔁 Loading model from checkpoint: {checkpoint_path}")
-    model = MAETrainModule.load_from_checkpoint(checkpoint_path, strict=False)
+    try:
+        module = MAETrainModule.load_from_checkpoint(
+            checkpoint_path,
+            map_location="cpu",
+            strict=False,
+        )
+    except KeyError:
+        print("📦 Detected pure PyTorch checkpoint (.pt)")
+
+        module = MAETrainModule(
+            pretrained_encoder=None,
+            model_cfg=cfg.get("model", {}),
+            training_cfg=cfg.get("training", {}),
+        )
+
+        ckpt: dict = torch.load(checkpoint_path, map_location="cpu")
+        state_dict = ckpt.get("state_dict", ckpt)
+        _, _ = module.model.load_state_dict(state_dict, strict=False)
+    else:
+        print("📦 Detected Lightning checkpoint (.ckpt)")
 
     # ------------------------------
     # Logging
@@ -82,7 +101,7 @@ def evaluate_checkpoint(cfg, checkpoint_path):
     # Test
     # ------------------------------
     print("\n🚀 Starting evaluation...")
-    results = trainer.test(model, test_loader, ckpt_path=None)
+    results = trainer.test(module, test_loader, ckpt_path=None)
 
     acc = results[0].get("test_acc", None)
     print(f"🔎 Test Accuracy: {acc}")

@@ -98,52 +98,46 @@ def main():
             decoder_cfg=model_cfg["decoder"],
         )
 
-        if args.encoder_ckpt:
-            ckpt = torch.load(args.encoder_ckpt, map_location="cpu")
-            state_dict = ckpt.get("state_dict", ckpt)
+        ckpt = torch.load(args.encoder_ckpt, map_location="cpu")
+        state_dict = ckpt.get("state_dict", ckpt)
 
-            # Possible prefixes where encoder weights may live
-            possible_prefixes = [
-                "model.encoder.",  # LightningModule → self.model.encoder
-                "encoder.",  # plain state_dict from MAE
-                "module.encoder.",  # DDP/DataParallel
-            ]
+        # Possible prefixes where encoder weights may live
+        possible_prefixes = [
+            "model.encoder.",  # LightningModule → self.model.encoder
+            "encoder.",  # plain state_dict from MAE
+            "module.encoder.",  # DDP/DataParallel
+        ]
 
-            # Detect which prefix exists in this checkpoint
-            prefix = None
-            for p in possible_prefixes:
-                if any(k.startswith(p) for k in state_dict.keys()):
-                    prefix = p
-                    break
+        # Detect which prefix exists in this checkpoint
+        prefix = None
+        for p in possible_prefixes:
+            if any(k.startswith(p) for k in state_dict.keys()):
+                prefix = p
+                break
 
-            if prefix is None:
-                raise ValueError(
-                    "❌ Could not find encoder weights in checkpoint. "
-                    "Expected keys starting with one of: "
-                    + ", ".join(possible_prefixes)
-                )
-
-            print(f"🔎 Detected encoder prefix in checkpoint: '{prefix}'")
-
-            # Extract only encoder weights and strip the prefix
-            encoder_state = {
-                k[len(prefix) :]: v
-                for k, v in state_dict.items()
-                if k.startswith(prefix)
-            }
-
-            # Now load them safely into the MAE encoder
-            missing, unexpected = mae.encoder.load_state_dict(
-                encoder_state,
-                strict=False,  # allow decoder/head keys to be ignored
+        if prefix is None:
+            raise ValueError(
+                "❌ Could not find encoder weights in checkpoint. "
+                "Expected keys starting with one of: " + ", ".join(possible_prefixes)
             )
 
-            print(
-                f"✅ Loaded encoder weights: {len(encoder_state)} tensors "
-                f"({len(missing)} missing, {len(unexpected)} unexpected)"
-            )
-        else:
-            print("⚠️ No encoder checkpoint provided — training from scratch!")
+        print(f"🔎 Detected encoder prefix in checkpoint: '{prefix}'")
+
+        # Extract only encoder weights and strip the prefix
+        encoder_state = {
+            k[len(prefix) :]: v for k, v in state_dict.items() if k.startswith(prefix)
+        }
+
+        # Now load them safely into the MAE encoder
+        missing, unexpected = mae.encoder.load_state_dict(
+            encoder_state,
+            strict=False,  # allow decoder/head keys to be ignored
+        )
+
+        print(
+            f"✅ Loaded encoder weights: {len(encoder_state)} tensors "
+            f"({len(missing)} missing, {len(unexpected)} unexpected)"
+        )
 
         module = MAETrainModule(
             pretrained_encoder=mae.encoder.vit,

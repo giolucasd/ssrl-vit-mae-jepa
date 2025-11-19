@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
+from timm.models.vision_transformer import VisionTransformer
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 
@@ -108,24 +109,32 @@ class MAETrainModule(pl.LightningModule):
         self.num_classes = num_classes
 
         # Build model
-        if pretrained_encoder is not None:
-            self.model = MAEClassifier(
-                pretrained_encoder=pretrained_encoder,
-                num_classes=self.num_classes,
-                head_cfg=self.model_cfg.get("head", {}),
+        encoder_cfg = self.model_cfg.get("encoder", {})
+        encoder = (
+            pretrained_encoder
+            if pretrained_encoder is not None
+            else VisionTransformer(
+                img_size=self.model_cfg["general"]["image_size"],
+                patch_size=self.model_cfg["general"]["patch_size"],
+                in_chans=self.model_cfg["general"]["in_chans"],
+                embed_dim=encoder_cfg.get("embed_dim", 384),
+                depth=encoder_cfg.get("depth", 12),
+                num_heads=encoder_cfg.get("num_heads", 6),
+                num_classes=0,
             )
-        else:
-            print(
-                "⚙️ No pretrained encoder provided; model can be reloaded from checkpoint."
-            )
-            self.model = None
+        )
+
+        self.model = MAEClassifier(
+            pretrained_encoder=encoder,
+            num_classes=self.num_classes,
+            head_cfg=self.model_cfg.get("head", {}),
+        )
 
         # Freeze or unfreeze encoder as requested
-        if self.model is not None:
-            if self.freeze_encoder_flag:
-                self.freeze_encoder()
-            else:
-                self.unfreeze_encoder()
+        if self.freeze_encoder_flag:
+            self.freeze_encoder()
+        else:
+            self.unfreeze_encoder()
 
     def forward(self, x: torch.Tensor):
         return self.model(x)
@@ -184,16 +193,12 @@ class MAETrainModule(pl.LightningModule):
         }
 
     def freeze_encoder(self):
-        if self.model is None:
-            return
         for name, param in self.model.named_parameters():
             if "head" not in name:
                 param.requires_grad = False
         print("🧊 Encoder frozen (only classifier head is trainable).")
 
     def unfreeze_encoder(self):
-        if self.model is None:
-            return
         for param in self.model.parameters():
             param.requires_grad = True
         print("🔥 Encoder unfrozen (all parameters trainable).")
@@ -203,10 +208,6 @@ class MAETrainModule(pl.LightningModule):
         Unfreezes only the last `n_layers` Transformer blocks of the ViT encoder.
         All earlier layers remain frozen.
         """
-
-        if self.model is None:
-            raise RuntimeError("Model not built yet; cannot unfreeze layers.")
-
         encoder = self.model.encoder  # timm VisionTransformer
         blocks = encoder.blocks  # list of Transformer blocks
         total = len(blocks)
@@ -238,26 +239,24 @@ class MAETrainModule(pl.LightningModule):
 
     def on_load_checkpoint(self, checkpoint):
         """Rebuild classifier if loading from checkpoint without explicit model."""
-        if self.model is None:
-            print("🔁 Reinitializing MAEClassifier from checkpoint metadata...")
-            from timm.models.vision_transformer import VisionTransformer
+        print("🔁 Reinitializing MAEClassifier from checkpoint metadata...")
 
-            encoder_cfg = self.model_cfg.get("encoder", {})
-            encoder = VisionTransformer(
-                img_size=self.model_cfg["general"]["image_size"],
-                patch_size=self.model_cfg["general"]["patch_size"],
-                in_chans=self.model_cfg["general"]["in_chans"],
-                embed_dim=encoder_cfg.get("embed_dim", 384),
-                depth=encoder_cfg.get("depth", 12),
-                num_heads=encoder_cfg.get("num_heads", 6),
-                num_classes=0,
-            )
+        encoder_cfg = self.model_cfg.get("encoder", {})
+        encoder = VisionTransformer(
+            img_size=self.model_cfg["general"]["image_size"],
+            patch_size=self.model_cfg["general"]["patch_size"],
+            in_chans=self.model_cfg["general"]["in_chans"],
+            embed_dim=encoder_cfg.get("embed_dim", 384),
+            depth=encoder_cfg.get("depth", 12),
+            num_heads=encoder_cfg.get("num_heads", 6),
+            num_classes=0,
+        )
 
-            self.model = MAEClassifier(
-                pretrained_encoder=encoder,
-                num_classes=self.num_classes,
-                head_cfg=self.model_cfg.get("head", {}),
-            )
+        self.model = MAEClassifier(
+            pretrained_encoder=encoder,
+            num_classes=self.num_classes,
+            head_cfg=self.model_cfg.get("head", {}),
+        )
 
         if self.freeze_encoder_flag:
             self.freeze_encoder()
