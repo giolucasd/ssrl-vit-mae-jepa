@@ -62,7 +62,7 @@ def main():
         cmd = [
             "python",
             "-m",
-            "scripts.pretrain_mae",
+            "scripts.training.pretrain_mae",
             "--config",
             str(cfg_path),
             "--output_dir_suffix",

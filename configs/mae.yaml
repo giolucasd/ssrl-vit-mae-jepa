@@ -36,10 +36,11 @@ train:
   total_epochs: 100
   warmup_epochs: 10
   batch_size: 2000
-  learning_rate: 3e-4
+  learning_rate: 1e-4
   weight_decay: 0.05
-  freeze_encoder: true
+  freeze_encoder: false
   num_workers: 4
+
 test:
   batch_size: 2000
   num_workers: 4
