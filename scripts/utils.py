@@ -93,8 +93,6 @@ def evaluate_checkpoint(cfg: dict, checkpoint_path: str | Path):
         devices=1,
         logger=tb_logger,
         precision="bf16-mixed" if torch.cuda.is_available() else "32-true",
-        gradient_clip_val=1.0,
-        gradient_clip_algorithm="norm",
     )
 
     # ------------------------------
