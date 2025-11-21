@@ -8,8 +8,8 @@ import torch
 import yaml
 from sklearn.manifold import TSNE
 from timm.models.vision_transformer import VisionTransformer
-from torch.utils.data import DataLoader
-from torchvision import datasets, transforms
+
+from src.data import get_test_dataloader
 
 from ..utils import setup_reproducibility, shut_down_warnings
 
@@ -246,21 +246,8 @@ def main():
 
     encoder = load_encoder_from_ckpt(args.encoder_ckpt, model_cfg).to(device)
 
-    transform = transforms.Compose(
-        [
-            transforms.Resize(96),
-            transforms.CenterCrop(96),
-            transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-        ]
-    )
-    dataset = datasets.STL10(
-        root="data", split="train", download=True, transform=transform
-    )
-    dataloader = DataLoader(
-        dataset, batch_size=args.batch_size, shuffle=True, num_workers=4
-    )
-    class_names = dataset.classes
+    dataloader = get_test_dataloader(cfg)
+    class_names = dataloader.dataset.classes
 
     print("📥 Extracting features…")
     feats, labels = extract_features(
@@ -277,7 +264,7 @@ def main():
 
     save_dir = Path("assets") / "visualizations"
     save_dir.mkdir(exist_ok=True)
-    ckpt_name = Path(args.encoder_ckpt).stem
+    ckpt_name = Path(args.encoder_ckpt).parent.parent.stem
 
     out_path = (
         save_dir
