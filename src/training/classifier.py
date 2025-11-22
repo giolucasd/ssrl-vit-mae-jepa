@@ -169,29 +169,3 @@ class ViTClassifierTrainModule(pl.LightningModule):
             param.requires_grad = True
 
         print("🔥 Selective unfreezing complete.")
-
-    def on_load_checkpoint(self, checkpoint):
-        """Rebuild classifier if loading from checkpoint without explicit model."""
-        print("🔁 Reinitializing ViTClassifier from checkpoint metadata...")
-
-        encoder_cfg = self.model_cfg.get("encoder", {})
-        encoder = VisionTransformer(
-            img_size=self.model_cfg["general"]["image_size"],
-            patch_size=self.model_cfg["general"]["patch_size"],
-            in_chans=self.model_cfg["general"]["in_chans"],
-            embed_dim=encoder_cfg.get("embed_dim", 384),
-            depth=encoder_cfg.get("depth", 12),
-            num_heads=encoder_cfg.get("num_heads", 6),
-            num_classes=0,
-        )
-
-        self.model = ViTClassifier(
-            pretrained_encoder=encoder,
-            num_classes=self.num_classes,
-            head_cfg=self.model_cfg.get("head", {}),
-        )
-
-        if self.freeze_encoder_flag:
-            self.freeze_encoder()
-        else:
-            self.unfreeze_encoder()
