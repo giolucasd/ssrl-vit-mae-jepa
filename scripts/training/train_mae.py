@@ -12,7 +12,7 @@ from timm.models.vision_transformer import VisionTransformer
 
 from src.data import get_train_dataloaders
 from src.models.mae import MaskedAutoencoder
-from src.training.mae import MAETrainModule
+from src.training.classifier import ViTClassifierTrainModule
 
 from ..utils import setup_reproducibility, shut_down_warnings
 
@@ -84,7 +84,7 @@ def main():
     # ------------------------------
     if args.classifier_ckpt:
         print(f"🔁 Loading full classifier checkpoint: {args.classifier_ckpt}")
-        module = MAETrainModule.load_from_checkpoint(
+        module = ViTClassifierTrainModule.load_from_checkpoint(
             args.classifier_ckpt,
             map_location="cpu",
             strict=False,
@@ -139,7 +139,7 @@ def main():
             f"({len(missing)} missing, {len(unexpected)} unexpected)"
         )
 
-        module = MAETrainModule(
+        module = ViTClassifierTrainModule(
             pretrained_encoder=mae.encoder.vit,
             model_cfg=model_cfg,
             training_cfg=train_cfg,
@@ -157,7 +157,7 @@ def main():
             num_classes=0,  # no cls head
         )
 
-        module = MAETrainModule(
+        module = ViTClassifierTrainModule(
             pretrained_encoder=encoder,
             model_cfg=model_cfg,
             training_cfg=train_cfg,

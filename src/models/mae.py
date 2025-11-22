@@ -1,7 +1,6 @@
-# src/models/mae.py
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 import torch
 from lightly.models import utils
@@ -9,11 +8,9 @@ from lightly.models.modules import MAEDecoderTIMM, MaskedVisionTransformerTIMM
 from timm.models.vision_transformer import VisionTransformer
 from torch import nn
 
-from src.models.heads import SimpleHead
-
 
 class MaskedAutoencoder(nn.Module):
-    """Masked Autoencoder (MAE) — pretraining with ViT backbone."""
+    """Masked Autoencoder (MAE) with ViT backbone."""
 
     def __init__(
         self,
@@ -95,38 +92,3 @@ class MaskedAutoencoder(nn.Module):
         target = utils.get_at_index(tokens=patches, index=idx_mask_adj)
 
         return x_pred, target
-
-
-class MAEClassifier(nn.Module):
-    """Classifier built on top of a pretrained MAE encoder."""
-
-    def __init__(
-        self,
-        pretrained_encoder: VisionTransformer,
-        num_classes: int = 10,
-        head_cfg: Optional[Dict[str, Any]] = None,
-    ):
-        super().__init__()
-        self.encoder = pretrained_encoder
-        head_cfg = head_cfg or {}
-
-        embed_dim = head_cfg.get("embed_dim", pretrained_encoder.embed_dim)
-        pool_type = head_cfg.get("pool", "cls")  # or "mean"
-
-        self.pool_type = pool_type
-        self.head = SimpleHead(
-            input_dim=embed_dim,
-            output_dim=num_classes,
-        )
-
-    def forward(self, x: torch.Tensor):
-        feats = self.encoder.forward_features(x)
-        if isinstance(feats, (tuple, list)):
-            feats = feats[0]
-
-        if self.pool_type == "cls":
-            pooled = feats[:, 0]
-        else:
-            pooled = feats.mean(dim=1)
-
-        return self.head(pooled)

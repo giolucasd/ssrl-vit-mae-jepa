@@ -3,7 +3,7 @@ from pathlib import Path
 
 import torch
 
-from src.training.mae import MAETrainModule
+from src.training.classifier import ViTClassifierTrainModule
 
 SOURCE_DIR = Path("assets/weights")
 TARGET_DIR = SOURCE_DIR / "pt"
@@ -13,7 +13,7 @@ def extract_pytorch_weights(ckpt_path: Path, target_path: Path):
     print(f"🔍 Loading lightning module from checkpoint: {ckpt_path}")
 
     # Carrega corretamente o LightningModule
-    module = MAETrainModule.load_from_checkpoint(
+    module = ViTClassifierTrainModule.load_from_checkpoint(
         ckpt_path,
         map_location="cpu",
         strict=False,

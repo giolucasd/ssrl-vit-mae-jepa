@@ -5,7 +5,7 @@ import torch
 from pytorch_lightning.loggers import TensorBoardLogger
 
 from src.data import get_test_dataloader
-from src.training.mae import MAETrainModule
+from src.training.classifier import ViTClassifierTrainModule
 
 
 def setup_reproducibility(seed: int) -> None:
@@ -53,7 +53,7 @@ def evaluate_checkpoint(cfg: dict, checkpoint_path: str | Path):
     # ------------------------------
     print(f"🔁 Loading model from checkpoint: {checkpoint_path}")
     try:
-        module = MAETrainModule.load_from_checkpoint(
+        module = ViTClassifierTrainModule.load_from_checkpoint(
             checkpoint_path,
             map_location="cpu",
             strict=False,
@@ -61,7 +61,7 @@ def evaluate_checkpoint(cfg: dict, checkpoint_path: str | Path):
     except KeyError:
         print("📦 Detected pure PyTorch checkpoint (.pt)")
 
-        module = MAETrainModule(
+        module = ViTClassifierTrainModule(
             pretrained_encoder=None,
             model_cfg=cfg.get("model", {}),
             training_cfg=cfg.get("training", {}),
