@@ -214,4 +214,4 @@ lightning_logs/
 
 # Training outputs
 outputs/
-# assets/weights/
+assets/weights/
