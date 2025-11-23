@@ -7,6 +7,21 @@ from timm.models.vision_transformer import VisionTransformer
 from torch import nn
 
 
+class SimpleHead(torch.nn.Module):
+    """Simple classification head."""
+
+    def __init__(
+        self,
+        input_dim: int,
+        output_dim: int,
+    ) -> None:
+        super().__init__()
+        self.classification = torch.nn.Linear(input_dim, output_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.classification(x)
+
+
 class ViTClassifier(nn.Module):
     """Classifier built on top of a pretrained ViT encoder."""
 
@@ -24,7 +39,10 @@ class ViTClassifier(nn.Module):
         pool_type = head_cfg.get("pool", "cls")  # or "mean"
 
         self.pool_type = pool_type
-        self.head = torch.nn.Linear(embed_dim, num_classes)
+        self.head = SimpleHead(
+            input_dim=embed_dim,
+            output_dim=num_classes,
+        )
 
     def forward(self, x: torch.Tensor):
         feats = self.encoder.forward_features(x)
