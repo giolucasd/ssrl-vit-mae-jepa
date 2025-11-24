@@ -8,15 +8,13 @@ import torch
 import yaml
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.loggers import TensorBoardLogger
+from timm.models.vision_transformer import VisionTransformer
 
 from src.data import get_train_dataloaders
+from src.models.mae import MaskedAutoencoder
 from src.training.classifier import ViTClassifierTrainModule
 
-from ..utils import (
-    load_vit_classifier_from_checkpoint,
-    setup_reproducibility,
-    shut_down_warnings,
-)
+from ..utils import setup_reproducibility, shut_down_warnings
 
 shut_down_warnings()
 setup_reproducibility(seed=73)
@@ -84,19 +82,97 @@ def main():
     # ------------------------------
     # Model setup
     # ------------------------------
-    module: ViTClassifierTrainModule = load_vit_classifier_from_checkpoint(
-        checkpoint_path=args.classifier_ckpt or args.encoder_ckpt,
-        model_cfg=model_cfg,
-        training_cfg=train_cfg,
-        encoder_only=args.encoder_ckpt is not None,
-    )
+    if args.classifier_ckpt:
+        print(f"🔁 Loading full classifier checkpoint: {args.classifier_ckpt}")
+        module = ViTClassifierTrainModule.load_from_checkpoint(
+            args.classifier_ckpt,
+            map_location="cpu",
+            strict=False,
+        )
+    elif args.encoder_ckpt:
+        # Build model from encoder weights or from scratch
+        print(f"🧩 Loading pretrained encoder: {args.encoder_ckpt}")
+        mae = MaskedAutoencoder(
+            general_cfg=model_cfg["general"],
+            encoder_cfg=model_cfg["encoder"],
+            decoder_cfg=model_cfg["decoder"],
+        )
+
+        ckpt = torch.load(args.encoder_ckpt, map_location="cpu")
+        state_dict = ckpt.get("state_dict", ckpt)
+
+        # Possible prefixes where encoder weights may live
+        possible_prefixes = [
+            "model.encoder.",  # LightningModule → self.model.encoder
+            "encoder.",  # plain state_dict from MAE
+            "module.encoder.",  # DDP/DataParallel
+        ]
+
+        # Detect which prefix exists in this checkpoint
+        prefix = None
+        for p in possible_prefixes:
+            if any(k.startswith(p) for k in state_dict.keys()):
+                prefix = p
+                break
+
+        if prefix is None:
+            raise ValueError(
+                "❌ Could not find encoder weights in checkpoint. "
+                "Expected keys starting with one of: " + ", ".join(possible_prefixes)
+            )
+
+        print(f"🔎 Detected encoder prefix in checkpoint: '{prefix}'")
+
+        # Extract only encoder weights and strip the prefix
+        encoder_state = {
+            k[len(prefix) :]: v for k, v in state_dict.items() if k.startswith(prefix)
+        }
+
+        # Now load them safely into the MAE encoder
+        missing, unexpected = mae.encoder.load_state_dict(
+            encoder_state,
+            strict=False,  # allow decoder/head keys to be ignored
+        )
+
+        print(
+            f"✅ Loaded encoder weights: {len(encoder_state)} tensors "
+            f"({len(missing)} missing, {len(unexpected)} unexpected)"
+        )
+
+        module = ViTClassifierTrainModule(
+            pretrained_encoder=mae.encoder.vit,
+            model_cfg=model_cfg,
+            training_cfg=train_cfg,
+        )
+    else:
+        print("🧪 Baseline: random-initialized VisionTransformer (no MAE)")
+
+        encoder = VisionTransformer(
+            img_size=model_cfg["general"]["image_size"],
+            patch_size=model_cfg["general"]["patch_size"],
+            in_chans=model_cfg["general"]["in_chans"],
+            embed_dim=model_cfg["encoder"]["embed_dim"],
+            depth=model_cfg["encoder"]["depth"],
+            num_heads=model_cfg["encoder"]["num_heads"],
+            num_classes=0,  # no cls head
+        )
+
+        module = ViTClassifierTrainModule(
+            pretrained_encoder=encoder,
+            model_cfg=model_cfg,
+            training_cfg=train_cfg,
+        )
 
     # Unfreeze encoder if configured
     if train_cfg.get("unfreeze_last_layers", None) is not None:
-        module.unfreeze_last_layers(int(train_cfg["unfreeze_last_layers"]))
+        n_layers = int(train_cfg["unfreeze_last_layers"])
+        print(f"🧠 Unfreezing {n_layers} encoder layers...")
+        module.unfreeze_last_layers(n_layers)
     elif train_cfg.get("freeze_encoder", True):
+        print("🧊 Freezing encoder weights...")
         module.freeze_encoder()
     else:
+        print("🧠 Unfreezing encoder weights...")
         module.unfreeze_encoder()
 
     # ------------------------------
