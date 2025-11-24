@@ -5,8 +5,8 @@ import torch
 from pytorch_lightning import LightningModule
 from pytorch_lightning.loggers import TensorBoardLogger
 from timm.models.vision_transformer import VisionTransformer
+from torch.utils.data import DataLoader
 
-from src.data import get_test_dataloader
 from src.training.classifier import ViTClassifierTrainModule
 
 
@@ -148,18 +148,17 @@ def load_vit_classifier_from_checkpoint(
     return module
 
 
-def evaluate_checkpoint(cfg: dict, checkpoint_path: str | Path):
+def evaluate_checkpoint(
+    cfg: dict,
+    checkpoint_path: str | Path,
+    data_loader: DataLoader,
+):
     """
     Reusable evaluation helper.
-    Loads model, loads test dataloader, runs evaluation, returns test accuracy.
+    Loads model, runs evaluation on given data loader, returns test accuracy.
     """
     test_cfg = cfg["test"]
     log_cfg = cfg["logging"]
-
-    # ------------------------------
-    # Data
-    # ------------------------------
-    test_loader = get_test_dataloader(cfg)
 
     # ------------------------------
     # Load model
@@ -197,7 +196,7 @@ def evaluate_checkpoint(cfg: dict, checkpoint_path: str | Path):
     # Test
     # ------------------------------
     print("\n🚀 Starting evaluation...")
-    results = trainer.test(module, test_loader, ckpt_path=None)
+    results = trainer.test(module, data_loader, ckpt_path=None)
 
     acc = results[0].get("test_acc", None)
     print(f"🔎 Test Accuracy: {acc}")

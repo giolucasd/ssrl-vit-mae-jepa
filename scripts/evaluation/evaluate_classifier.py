@@ -1,10 +1,11 @@
-# scripts/evaluate_classifier.py
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
 
 import yaml
+
+from src.data import get_test_dataloader
 
 from ..utils import evaluate_checkpoint, setup_reproducibility, shut_down_warnings
 
@@ -52,7 +53,15 @@ def main():
         args.checkpoint = str(default_ckpt)
         print(f"🧩 Using default checkpoint: {args.checkpoint}")
 
-    acc = evaluate_checkpoint(cfg, args.checkpoint)
+    # ------------------------------
+    # Data
+    # ------------------------------
+    test_loader = get_test_dataloader(cfg)
+
+    # ------------------------------
+    # Evaluate
+    # ------------------------------
+    acc = evaluate_checkpoint(cfg, args.checkpoint, test_loader)
 
     # ------------------------------
     # Output

@@ -5,6 +5,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import yaml
 
+from src.data import get_test_dataloader
+
 from ..utils import evaluate_checkpoint, setup_reproducibility, shut_down_warnings
 
 shut_down_warnings()
@@ -38,6 +40,8 @@ def create_accuracy_plot(cfg):
         print(f"Error: {weights_dir} does not exist")
         return
 
+    test_loader = get_test_dataloader(cfg)
+
     # Dictionary to store results: {pretrain_pct: {labels_per_class: accuracy}}
     results = {}
 
@@ -46,7 +50,7 @@ def create_accuracy_plot(cfg):
         pretrain_pct, labels_per_class = parse_filename(ckpt_file.name)
 
         if pretrain_pct is not None and labels_per_class is not None:
-            accuracy = evaluate_checkpoint(cfg, ckpt_file)
+            accuracy = evaluate_checkpoint(cfg, ckpt_file, test_loader)
 
             if accuracy is not None:
                 if pretrain_pct not in results:
