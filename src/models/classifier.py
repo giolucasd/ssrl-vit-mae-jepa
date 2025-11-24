@@ -7,7 +7,7 @@ from timm.models.vision_transformer import VisionTransformer
 from torch import nn
 
 
-class SimpleHead(torch.nn.Module):
+class ClassificationHead(torch.nn.Module):
     """Simple classification head."""
 
     def __init__(
@@ -39,7 +39,7 @@ class ViTClassifier(nn.Module):
         pool_type = head_cfg.get("pool", "cls")  # or "mean"
 
         self.pool_type = pool_type
-        self.head = SimpleHead(
+        self.head = ClassificationHead(
             input_dim=embed_dim,
             output_dim=num_classes,
         )
